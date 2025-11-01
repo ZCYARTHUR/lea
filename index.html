@@ -3,16 +3,18 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>LEA 动画 · DOM 多模式 + GPU 粒子字形场（已修正字形方向）</title>
+<title>LEA 动画 · DOM 多模式 + GPU 粒子字形场（正向/白底）</title>
 <style>
   :root{ --btn-bg:#000; --btn-fg:#fff; --menu-bg:rgba(0,0,0,.85); --menu-fg:#fff; }
-  html,body{height:100%;margin:0;overflow:hidden;background:#0b0c10;color:#fff;-webkit-user-select:none;user-select:none}
-  /* DOM 舞台 */
-  #stage{position:relative;width:100vw;height:100vh;overflow:hidden;background:#fff;color:#000;visibility:hidden}
+  html,body{height:100%;margin:0;overflow:hidden;background:#fff;color:#000;-webkit-user-select:none;user-select:none}
+
+  /* DOM 舞台（非 GPU 模式可用；默认隐藏） */
+  #stage{position:relative;width:100vw;height:100vh;overflow:hidden;background:#fff;visibility:hidden}
+
   /* GPU 舞台 */
-  #gpuRoot{position:fixed; inset:0; display:block; background:#0b0c10}
+  #gpuRoot{position:fixed; inset:0; display:block; background:#fff}
   #gpuCanvas{position:absolute; inset:0; width:100%; height:100%; display:block}
-  #gpuDiag{position:fixed; left:10px; bottom:10px; color:#94a3b8; font:12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, PingFang SC, Helvetica, Arial; z-index:9; opacity:.9}
+  #gpuDiag{position:fixed; left:10px; bottom:10px; color:#64748b; font:12px/1.2 system-ui,-apple-system,Segoe UI,Roboto,PingFang SC,Helvetica,Arial; z-index:9; opacity:.9}
 
   /* 顶部工具条 */
   .toolbar{position:fixed; right:12px; top:12px; z-index:9999; display:flex; gap:8px}
@@ -23,32 +25,21 @@
   .menu button{display:block;width:100%;text-align:left;padding:10px 14px;background:transparent;color:#fff;border:0;cursor:pointer;font-size:14px}
   .menu button:hover{background:rgba(255,255,255,.08)}
 
-  /* DOM 弹窗元素 */
-  .tile{
-    position:absolute; display:flex; align-items:center; justify-content:center;
+  /* DOM 弹窗元素（保留占位） */
+  .tile{position:absolute; display:flex; align-items:center; justify-content:center;
     border-radius:10px; padding:0 6px; box-sizing:border-box;
     font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Arial,Helvetica,sans-serif;
     line-height:1.1; text-align:center; word-break:break-word;
-    box-shadow:0 2px 8px rgba(0,0,0,.12);
-    will-change:transform,opacity; cursor:pointer;
-  }
-  .particle{position:absolute; pointer-events:none; will-change:transform,opacity}
-  .heart{font-size:16px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.2))}
-  .confetti{width:8px; height:12px; transform-origin:50% 50%; border-radius:2px}
-  .snow{width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,.95); box-shadow:0 0 10px rgba(255,255,255,.8)}
-  .balloon{width:18px; height:24px; border-radius:50% 50% 50% 50% / 60% 60% 40% 40%; box-shadow:0 3px 10px rgba(0,0,0,.15)}
-  .secret{ outline:2px dashed rgba(0,0,0,.2); box-shadow:0 6px 16px rgba(0,0,0,.18)!important; }
+    box-shadow:0 2px 8px rgba(0,0,0,.12); will-change:transform,opacity; cursor:pointer;}
 
   /* 自动播放兜底提示 */
   .unlock-mask{position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:10001; background:rgba(255,255,255,0)}
   .unlock-mask.show{ display:flex; }
   .unlock-card{background:rgba(0,0,0,.65); color:#fff; padding:10px 14px; border-radius:12px; font-size:14px; box-shadow:0 6px 24px rgba(0,0,0,.25)}
-
-  @media (prefers-reduced-motion: reduce){ .tile,.particle{animation:none!important} }
 </style>
 </head>
 <body>
-  <!-- DOM 舞台（非 GPU 模式时显示） -->
+  <!-- DOM 舞台 -->
   <div id="stage"></div>
 
   <!-- GPU 舞台 -->
@@ -64,7 +55,7 @@
   <div class="toolbar">
     <button id="modeBtn" class="btn" aria-haspopup="true" aria-expanded="false">模式：GPU 字形粒子</button>
     <button id="clearBtn" class="btn">清屏</button>
-    <button id="textBtn" class="btn">字：LEA 天天开心</button>
+    <button id="textBtn" class="btn">字：LEA</button>
 
     <button id="musicBtn" class="btn">音乐：暂停</button>
     <div id="musicMenu" class="menu" aria-label="音乐菜单">
@@ -95,7 +86,7 @@
 <script type="module">
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
-/* -------------------- 公共：音乐控制 -------------------- */
+/* -------------------- 音乐控制 -------------------- */
 const bgm = document.getElementById('bgm');
 const musicBtn = document.getElementById('musicBtn');
 const musicMenu = document.getElementById('musicMenu');
@@ -125,16 +116,16 @@ const gpuCanvas = document.getElementById('gpuCanvas');
 const gpuDiag   = document.getElementById('gpuDiag');
 
 const GPUPARAM = {
-  COUNT: 60000,          // 粒子数量
-  BASE_SIZE: 0.012,      // 每个粒子世界坐标尺寸
+  COUNT: 60000,
+  BASE_SIZE: 0.012,
   DAMPING: 0.92,
-  DRIVE: 0.28,           // 字形吸附强度
-  EDGE_THR: 0.5,         // 字形阈值
+  DRIVE: 0.28,
+  EDGE_THR: 0.5,
   NOISE: 0.004,
   ENERGY_SCALE: 1.7,
   MASK_W: 1024,
   MASK_H: 512,
-  PALETTE: ['#ffd3e0','#bde0fe','#c7f9cc','#e9e5ff','#fff6b3','#ffcfb3']
+  PALETTE: ['#d946ef','#0ea5e9','#10b981','#0ea5e9','#111827','#f59e0b'] // 白底更显眼
 };
 
 const GPU = {
@@ -143,17 +134,18 @@ const GPU = {
   renderMat:null, inst:null,
   maskCanvas:null, maskTex:null,
   rtA:null, rtB:null, readRT:null, writeRT:null, stateTex:null,
-  texSide:0, running:false, last:0, text:'LEA 天天开心',
+  texSide:0, running:false, last:0, text:'LEA',
   audio:{ ctx:null, src:null, analyser:null, data:null, energy(){ if(!this.analyser) return 0; this.analyser.getByteFrequencyData(this.data); let s=0; for(const v of this.data) s+=v; return s/(this.data.length*255);} }
 };
 
 function initGPU(){
   if(GPU.renderer) return;
 
-  const gl = gpuCanvas.getContext('webgl2', {antialias:true, alpha:true});
+  const gl = gpuCanvas.getContext('webgl2', {antialias:true, alpha:false}); // alpha=false 更纯白
   GPU.renderer = new THREE.WebGLRenderer({canvas:gpuCanvas, context:gl});
   GPU.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   GPU.renderer.setSize(innerWidth, innerHeight);
+  GPU.renderer.setClearColor(0xffffff, 1); // ← 白色清屏
 
   if(!GPU.renderer.capabilities.isWebGL2){ alert('需要 WebGL2'); }
   if(!gl.getExtension('EXT_color_buffer_float')){ alert('需要 EXT_color_buffer_float'); }
@@ -165,8 +157,10 @@ function initGPU(){
   GPU.maskCanvas = document.createElement('canvas');
   GPU.maskCanvas.width = GPUPARAM.MASK_W; GPU.maskCanvas.height = GPUPARAM.MASK_H;
   GPU.maskTex = new THREE.CanvasTexture(GPU.maskCanvas);
-  GPU.maskTex.minFilter = THREE.LinearFilter; GPU.maskTex.magFilter = THREE.LinearFilter;
-  // 注意：flipY 使用默认 false，配合 worldToMask 中的 v = (pos.y + 1.0)*0.5（不倒置）
+  GPU.maskTex.minFilter = THREE.LinearFilter; 
+  GPU.maskTex.magFilter = THREE.LinearFilter;
+  GPU.maskTex.flipY = true;           // ← 关键：翻转到 OpenGL 底边为 0 的坐标系
+  GPU.maskTex.needsUpdate = true;
 
   // 状态纹理尺寸
   GPU.texSide = Math.ceil(Math.sqrt(GPUPARAM.COUNT));
@@ -175,14 +169,14 @@ function initGPU(){
   });}
   GPU.rtA = makeRT(); GPU.rtB = makeRT(); GPU.readRT = GPU.rtA; GPU.writeRT = GPU.rtB;
 
-  // 初始化粒子状态
+  // 初始化粒子
   const initArr = new Float32Array(GPU.texSide*GPU.texSide*4);
   for(let i=0;i<GPUPARAM.COUNT;i++){
     const k=i*4;
-    initArr[k]   = (Math.random()*2-1) * (innerWidth/innerHeight) * 0.95; // x
-    initArr[k+1] = (Math.random()*2-1) * 0.95;                              // y
-    initArr[k+2] = (Math.random()*2-1) * 0.02;                              // vx
-    initArr[k+3] = (Math.random()*2-1) * 0.02;                              // vy
+    initArr[k]   = (Math.random()*2-1) * (innerWidth/innerHeight) * 0.95;
+    initArr[k+1] = (Math.random()*2-1) * 0.95;
+    initArr[k+2] = (Math.random()*2-1) * 0.02;
+    initArr[k+3] = (Math.random()*2-1) * 0.02;
   }
   GPU.stateTex = new THREE.DataTexture(initArr, GPU.texSide, GPU.texSide, THREE.RGBAFormat, THREE.FloatType);
   GPU.stateTex.needsUpdate = true;
@@ -221,10 +215,10 @@ function initGPU(){
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
       float rand(vec2 p){ return hash(p + uTime*0.123); }
 
-      // 世界坐标 -> 遮罩坐标（已修正为“正向”，不再倒置）
+      // 世界坐标 -> 遮罩坐标（与 flipY=true 配套，文字正向）
       vec2 worldToMask(vec2 pos){
         float u = (pos.x / uAspect + 1.0) * 0.5;
-        float v = (pos.y + 1.0) * 0.5;   // ← 关键修复：不再 1.0 - (...)
+        float v = (pos.y + 1.0) * 0.5;   // 正向（不再 1.0 - ...）
         return vec2(u, v);
       }
 
@@ -300,7 +294,7 @@ function initGPU(){
         vec2 p = pos + position.xy * size;
 
         vColIndex = float(i % 6);
-        vLocal = position.xy;     // 传给片元用于圆点软边
+        vLocal = position.xy;
         gl_Position = vec4(p.x / uAspect, p.y, 0.0, 1.0);
       }
     `,
@@ -316,8 +310,8 @@ function initGPU(){
         return (k==0)?uP0:(k==1)?uP1:(k==2)?uP2:(k==3)?uP3:(k==4)?uP4:uP5;
       }
       void main(){
-        float r = length(vLocal);                // [-0.5,0.5] 的半径
-        float alpha = smoothstep(0.5, 0.42, r);  // 软边
+        float r = length(vLocal);
+        float alpha = smoothstep(0.5, 0.42, r);
         vec3 col = pick(vColIndex);
         outColor = vec4(col, alpha);
       }
@@ -349,6 +343,9 @@ function drawTextMask(text){
   const c = GPU.maskCanvas, mctx = c.getContext('2d');
   const W=c.width, H=c.height;
   mctx.clearRect(0,0,W,H);
+  mctx.fillStyle='#000'; // 在白底下我们希望字形力场来自“黑/不透明 alpha”
+  mctx.fillRect(0,0,W,H); // 先铺底黑
+  mctx.globalCompositeOperation = 'destination-out'; // 用文字“挖空”得到 alpha 形状
   mctx.fillStyle='#fff';
   let fontSize = Math.floor(H*0.74);
   mctx.font = `700 ${fontSize}px system-ui,-apple-system,Segoe UI,Roboto,PingFang SC,Helvetica,Arial`;
@@ -360,6 +357,7 @@ function drawTextMask(text){
   mctx.textAlign='center'; mctx.textBaseline='middle';
   const x=W/2, y=H/2 + (metrics.actualBoundingBoxDescent - metrics.actualBoundingBoxAscent)/2;
   mctx.fillText(text, x, y);
+  mctx.globalCompositeOperation = 'source-over';
   GPU.maskTex.needsUpdate = true;
 }
 
@@ -395,16 +393,15 @@ function loop(t){
 
 function startGPU(text){
   initGPU();
-  GPU.text = text || GPU.text;
+  GPU.text = (text||GPU.text||'LEA').slice(0,24);
   drawTextMask(GPU.text);
   GPU.running = true;
   GPU.last = performance.now();
   requestAnimationFrame(loop);
-  gpuDiag.textContent = `WebGL2 + GPGPU · Instanced(${GPUPARAM.COUNT}) · 字形方向：正`;
+  document.getElementById('gpuDiag').textContent = `WebGL2 + GPGPU · Instanced(${GPUPARAM.COUNT}) · 白底 · 正向`;
 }
 function stopGPU(){ GPU.running=false; }
 function resetParticles(){
-  // 重新播种，给“清屏”使用
   const initArr = new Float32Array(GPU.texSide*GPU.texSide*4);
   for(let i=0;i<GPUPARAM.COUNT;i++){
     const k=i*4;
@@ -417,12 +414,10 @@ function resetParticles(){
   GPU.stateTex.needsUpdate = true;
 }
 
-/* -------------------- DOM 版本（简化：仅当切到 DOM 模式时启用） -------------------- */
-/* 保留你的原 DOM 弹窗/心形雨等能力（此处为精简占位；GPU 模式默认开启，DOM 需要时再显示） */
+/* -------------------- 菜单与模式切换（DOM模式占位） -------------------- */
 const STAGE = document.getElementById('stage');
 function showGPU(show){ gpuRoot.style.display = show?'block':'none'; STAGE.style.visibility = show?'hidden':'visible'; }
 
-/* -------------------- 顶部菜单与模式切换 -------------------- */
 const modeBtn = document.getElementById('modeBtn');
 const modeMenu = document.getElementById('modeMenu');
 const clearBtn = document.getElementById('clearBtn');
@@ -439,7 +434,7 @@ modeMenu.addEventListener('click', (e)=>{
 });
 clearBtn.addEventListener('click', ()=>{ if(CURRENT_MODE==='GPU') resetParticles(); else STAGE.innerHTML=''; });
 textBtn.addEventListener('click', ()=>{
-  const s = prompt('输入要显示的文本（支持中英文，长度 ≤ 24）', GPU.text);
+  const s = prompt('输入要显示的文本（支持中英文，≤24 字）', GPU.text);
   if(!s) return;
   GPU.text = s.slice(0,24);
   textBtn.textContent = '字：' + GPU.text;
@@ -450,19 +445,14 @@ function setMode(m){
   CURRENT_MODE = m;
   modeBtn.textContent = '模式：' + ({GPU:'GPU 字形粒子', LEA:'LEA 字形 + 弹窗', HEART_RAIN:'心形雨', FIREWORKS:'烟花', SNOW:'雪花', BALLOONS:'气球上浮', CONFETTI:'Confetti'}[m]||m);
 
-  if(m==='GPU'){
-    showGPU(true); startGPU(GPU.text);
-  }else{
-    stopGPU(); showGPU(false);
-    // 这里可以按你之前的 DOM 代码开启相应模式（略）
-    // e.g. startLEAFlow(); modeHeartRain(); ...
-  }
+  if(m==='GPU'){ showGPU(true); startGPU(GPU.text); }
+  else { stopGPU(); showGPU(false); /* 这里可接你的 DOM 动画 */ }
 }
 
 /* 默认进 GPU 模式 */
 setMode('GPU');
 
-/* 兼容：点击音乐按钮切换播放/暂停（菜单外快捷） */
+/* 音乐按钮双击快捷播放/暂停 */
 musicMenu.addEventListener('dblclick', (e)=>e.stopPropagation());
 musicBtn.addEventListener('dblclick', (e)=>{ e.preventDefault(); togglePlay(); });
 </script>
