@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>LEA 动画 · 多模式（含 GPU 粒子字形）</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23ffc6d9"/></svg>'>
 <style>
   :root{
     --btn-bg:#000; --btn-fg:#fff;
@@ -28,7 +29,7 @@
     cursor:pointer;
   }
 
-  /* 顶部工具栏与菜单（沿用你的黑色样式） */
+  /* 顶部工具栏与菜单 */
   .toolbar{position:fixed; right:12px; top:12px; z-index:9999; display:flex; gap:8px}
   .btn{
     padding:8px 12px; border-radius:999px; border:0; background:var(--btn-bg); color:var(--btn-fg);
@@ -46,7 +47,7 @@
   }
   .menu button:hover{background:rgba(255,255,255,.08)}
 
-  /* 粒子（心/纸屑/烟花/雪/气球） */
+  /* DOM 粒子（心/纸屑/烟花/雪/气球） */
   .particle{position:absolute; pointer-events:none; will-change:transform,opacity}
   .heart{font-size:16px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.2))}
   .confetti{width:8px; height:12px; transform-origin:50% 50%; border-radius:2px}
@@ -113,7 +114,7 @@
   <!-- 自动播放兜底提示 -->
   <div id="unlockMask" class="unlock-mask"><div class="unlock-card">🔊 轻触屏幕开启音乐</div></div>
 
-<!-- ===== 主脚本：保留你所有 DOM 模式功能，并集成 GPU 模式开关 ===== -->
+<!-- ========== 主脚本（DOM 动画 + 菜单 + 音乐） ========== -->
 <script>
 /* ===================== 全局配置（DOM 模式） ===================== */
 const WORD = "LEA";
@@ -133,10 +134,11 @@ const TIPS_SETS = [
   ['今天也要开心','喝水！','深呼吸三次','早点睡别熬夜','你值得最好的一切','小确幸正在路上','去散个步吧','做一件小小但正确的事'],
   ['祝你一路顺风','万事顺利','所愿皆成真','平安喜乐','好事发生在今天','好运排队来']
 ];
+/* 治愈系马卡龙调色板（无黑色） */
 const PALETTES = [
-  ['#ffd3e0','#bde0fe','#c7f9cc','#e9e5ff','#fff6b3','#ffcfb3'],
-  ['#f9e2af','#a6e3a1','#f5c2e7','#cba6f7','#89dceb','#fab387'],
-  ['#ffedd5','#d1fae5','#e0e7ff','#fef9c3','#fee2e2','#f1f5f9']
+  ['#EAF4F4','#D7E9F7','#DDF7E3','#FFF4D6','#EDE7FF','#FFE8E8'],
+  ['#E8F5E9','#E3F2FD','#FFF3E0','#F3E5F5','#E0F7FA','#FCE4EC'],
+  ['#F7F7FF','#EFFFFA','#FFF7E6','#FDECEF','#EEF2FF','#EBF4FF']
 ];
 let TIPS = TIPS_SETS[0];
 let BG_COLORS = PALETTES[0];
@@ -172,7 +174,7 @@ function makeTile(stage, spec, text="", tag=null){
   div.style.fontSize = Math.max(10, Math.floor(Math.min(spec.w,spec.h)/2.9)) + 'px';
   div.textContent = text;
 
-  const clickBurst = (e) => {
+  const clickBurst = () => {
     const rect = div.getBoundingClientRect();
     const cx = rect.left + rect.width/2 + window.scrollX;
     const cy = rect.top  + rect.height/2 + window.scrollY;
@@ -205,7 +207,7 @@ function burstHearts(x,y,count=10){
     const dist = 10+Math.random()*24;
     const tx = x + Math.cos(ang)*dist;
     const ty = y + Math.sin(ang)*dist - 10;
-    spawnParticle('heart', {left:x+'px', top:y+'px', color:choice(['#ff4d6d','#ff8fa3','#e03131','#f783ac'])}, [
+    spawnParticle('heart', {left:x+'px', top:y+'px', color:choice(['#FFB3C1','#FFC6A5','#FFE3A3','#BFE9C1','#BFD9FF','#E5D5FF'])}, [
       {transform:'translate(-50%,-50%) scale(0.8)', opacity:0.0},
       {transform:`translate(${tx-x-50}%, ${ty-y-50}%) scale(1.2)`, opacity:1, offset:.6},
       {transform:`translate(${tx-x-50}%, ${ty-y-70}%) scale(0.9)`, opacity:0}
@@ -214,7 +216,7 @@ function burstHearts(x,y,count=10){
 }
 function burstConfetti(x,y,count=14){
   for(let i=0;i<count;i++){
-    const col = choice(['#f94144','#f3722c','#f9c74f','#90be6d','#577590','#f72585','#4cc9f0']);
+    const col = choice(['#FFC6D9','#FFE0B2','#FFF3B0','#CDEECC','#CFE3FF','#E5D7FF']);
     const rx = (Math.random()-0.5)*60;
     const ry = (Math.random()-0.5)*40;
     const rot = (Math.random()*720-360)+'deg';
@@ -229,7 +231,7 @@ function burstConfetti(x,y,count=14){
 function buildMask(text, spaceCols=1){
   const rows = 7;
   const maskRows = Array(rows).fill("");
-  const chars = [...text.toUpperCase()];
+  const chars = [...text.toUpperCase()]];
   chars.forEach((ch, idx) => {
     const pat = FONT_5x7[ch] || FONT_5x7[' '];
     for(let r=0;r<rows;r++){
@@ -365,7 +367,7 @@ function modeHeartRain(){
     const x = randInt(20, st.clientWidth-20);
     const y = -20;
     const dur = 3000 + Math.random()*2000;
-    const p = spawnParticle('heart', {left:x+'px', top:y+'px', color:choice(['#ff4d6d','#ff8fa3','#f06595','#e03131'])}, [
+    const p = spawnParticle('heart', {left:x+'px', top:y+'px', color:choice(['#FFB3C1','#FFC6A5','#FFE3A3','#BFE9C1','#BFD9FF','#E5D5FF'])}, [
       {transform:'translate(-50%,-50%) scale(0.8)', opacity:0},
       {transform:`translate(-50%, ${st.clientHeight+40}px) scale(1.1)`, opacity:1}
     ], {duration:dur, easing:'linear', fill:'forwards'});
@@ -389,7 +391,7 @@ function modeBalloons(){
   const st = document.getElementById('stage');
   const spawn = ()=> {
     const x = randInt(20, st.clientWidth-20);
-    const clr = choice(['#ffadad','#ffd6a5','#fdffb6','#caffbf','#9bf6ff','#a0c4ff','#bdb2ff']);
+    const clr = choice(['#FFCAD4','#FFD6A5','#FFF1A8','#CDEECC','#CFE3FF','#E5D7FF']);
     const dur = 6000 + Math.random()*4000;
     spawnParticle('balloon', {left:x+'px', bottom:'-30px', background:clr}, [
       {transform:'translate(-50%, 0)'},{transform:`translate(-50%, -${st.clientHeight+60}px)`, opacity:.2}
@@ -404,7 +406,7 @@ function modeConfetti(){
     const y = -10;
     const dur = 2500 + Math.random()*2000;
     const rot = (Math.random()*720-360)+'deg';
-    spawnParticle('confetti', {left:x+'px', top:y+'px', background:choice(['#f94144','#f3722c','#f9c74f','#90be6d','#577590','#f72585','#4cc9f0'])}, [
+    spawnParticle('confetti', {left:x+'px', top:y+'px', background:choice(['#FFC6D9','#FFE0B2','#FFF3B0','#CDEECC','#CFE3FF','#E5D7FF'])}, [
       {transform:'translateY(0) rotate(0)', opacity:1},
       {transform:`translateY(${st.clientHeight+20}px) rotate(${rot})`, opacity:.9}
     ], {duration:dur, easing:'linear', fill:'forwards'});
@@ -534,7 +536,7 @@ gpuTextBtn.addEventListener('click', ()=>{
 window.addEventListener('load', ()=>{ setMode('LEA'); musicBtn.textContent = bgm.paused ? '音乐：播放' : '音乐：暂停'; autoStartBgm(); });
 </script>
 
-<!-- ===== GPU 粒子字形引擎（独立模块脚本） ===== -->
+<!-- ========== GPU 粒子字形引擎（独立模块脚本） ========== -->
 <script type="module">
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
@@ -548,11 +550,12 @@ const GPUPARAM = {
   ENERGY_SCALE: 1.6,
   MASK_W: 1400,
   MASK_H: 560,
-  PALETTE: ['#fbb6ce','#a8c5ff','#b9f5d0','#ffe39b','#ffd3b6','#d9c7ff'] // 马卡龙，无黑色
+  // 治愈系马卡龙（无黑色）
+  PALETTE: ['#BEE3F8','#FFDDE1','#D3F8E2','#FFF4CC','#EDE7FF','#FFE8D6']
 };
 
 const gpuCanvas = document.getElementById('gpuCanvas');
-const bgm = document.getElementById('bgm');
+const bgmEl = document.getElementById('bgm');
 
 const GPU = {
   renderer:null, scene:null, camera:null,
@@ -734,7 +737,9 @@ function initGPU(){
         float r = length(vLocal);
         float alpha = smoothstep(0.52, 0.36, r);
         vec3 col = pick(vColIndex);
-        outColor = vec4(col, alpha*0.92);
+        /* 柔化：轻微漂白 + 降饱和，整体更舒服 */
+        col = mix(col, vec3(1.0), 0.18);
+        outColor = vec4(col, alpha*0.85);
       }
     `,
     transparent:true
@@ -746,7 +751,7 @@ function initGPU(){
   // 音频能量
   try{
     GPU.audio.ctx = new (window.AudioContext||window.webkitAudioContext)();
-    GPU.audio.src = GPU.audio.ctx.createMediaElementSource(bgm);
+    GPU.audio.src = GPU.audio.ctx.createMediaElementSource(bgmEl);
     GPU.audio.analyser = GPU.audio.ctx.createAnalyser();
     GPU.audio.analyser.fftSize = 256; GPU.audio.data = new Uint8Array(GPU.audio.analyser.frequencyBinCount);
     GPU.audio.src.connect(GPU.audio.analyser).connect(GPU.audio.ctx.destination);
