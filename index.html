@@ -3,135 +3,557 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>LEA · 粒子字形（马卡龙配色 · 玻璃拟态UI）</title>
+<title>LEA 动画 · 多模式（含 GPU 粒子字形）</title>
 <style>
   :root{
-    --chip-bg: rgba(255,255,255,.78);
-    --chip-fg: #0f172a;
-    --chip-border: rgba(15,23,42,.10);
-    --menu-bg: rgba(255,255,255,.92);
-    --menu-fg: #0f172a;
+    --btn-bg:#000; --btn-fg:#fff;
+    --menu-bg:rgba(0,0,0,.85); --menu-fg:#fff;
   }
-  html,body{height:100%;margin:0;overflow:hidden;background:#fff;color:#0f172a;-webkit-user-select:none;user-select:none}
+  html,body{height:100%;margin:0;overflow:hidden;background:#fff;-webkit-user-select:none;user-select:none}
+  #stage{position:relative;width:100vw;height:100vh;overflow:hidden}
 
-  /* GPU 舞台 */
-  #gpuRoot{position:fixed; inset:0; display:block; background:#fff}
+  /* GPU 场景容器（默认隐藏） */
+  #gpuRoot{position:fixed; inset:0; display:none; background:#fff}
   #gpuCanvas{position:absolute; inset:0; width:100%; height:100%; display:block}
-  #gpuDiag{display:none} /* 去掉左下角黑灰信息条 */
+  #gpuDiag{display:none} /* 隐藏诊断条 */
 
-  /* 顶部玻璃拟态工具条 */
-  .toolbar{position:fixed; right:14px; top:14px; z-index:9999; display:flex; gap:10px}
-  .btn{
-    padding:8px 14px; border-radius:999px; border:1px solid var(--chip-border);
-    background:var(--chip-bg); color:var(--chip-fg);
-    font:500 14px/1 system-ui,-apple-system,Segoe UI,Roboto,PingFang SC,Helvetica,Arial;
-    box-shadow:0 6px 20px rgba(0,0,0,.07);
-    backdrop-filter: blur(8px);
-    cursor:pointer; transition:transform .12s ease, opacity .12s ease;
+  /* 卡片（弹窗） */
+  .tile{
+    position:absolute; display:flex; align-items:center; justify-content:center;
+    border-radius:10px; padding:0 6px; box-sizing:border-box;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Arial,Helvetica,sans-serif;
+    line-height:1.1; text-align:center; word-break:break-word;
+    box-shadow:0 2px 8px rgba(0,0,0,.12);
+    will-change:transform,opacity;
+    cursor:pointer;
   }
-  .btn:hover{ transform: translateY(-1px); }
+
+  /* 顶部工具栏与菜单（沿用你的黑色样式） */
+  .toolbar{position:fixed; right:12px; top:12px; z-index:9999; display:flex; gap:8px}
+  .btn{
+    padding:8px 12px; border-radius:999px; border:0; background:var(--btn-bg); color:var(--btn-fg);
+    font-size:14px; opacity:.85; cursor:pointer
+  }
+  .btn:hover{opacity:1}
   .menu{
-    position:absolute; right:0; top:44px; min-width:220px;
-    background:var(--menu-bg); color:var(--menu-fg); border-radius:14px; overflow:hidden;
-    display:none; z-index:10000; box-shadow:0 18px 40px rgba(2,6,23,.14); border:1px solid rgba(15,23,42,.08);
-    backdrop-filter: blur(10px);
+    position:absolute; right:0; top:44px; min-width:200px;
+    background:var(--menu-bg); color:var(--menu-fg); border-radius:12px; overflow:hidden;
+    display:none; z-index:10000; box-shadow:0 10px 30px rgba(0,0,0,.25); backdrop-filter: blur(8px);
   }
   .menu.open{display:block}
   .menu button{
-    display:block; width:100%; text-align:left; padding:11px 14px; background:transparent; color:inherit; border:0; cursor:pointer; font-size:14px;
+    display:block; width:100%; text-align:left; padding:10px 14px; background:transparent; color:#fff; border:0; cursor:pointer; font-size:14px;
   }
-  .menu button:hover{background:rgba(2,6,23,.05)}
+  .menu button:hover{background:rgba(255,255,255,.08)}
 
-  /* 自动播放兜底提示 */
-  .unlock-mask{position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:10001; background:rgba(255,255,255,0)}
+  /* 粒子（心/纸屑/烟花/雪/气球） */
+  .particle{position:absolute; pointer-events:none; will-change:transform,opacity}
+  .heart{font-size:16px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.2))}
+  .confetti{width:8px; height:12px; transform-origin:50% 50%; border-radius:2px}
+  .snow{width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,.95); box-shadow:0 0 10px rgba(255,255,255,.8)}
+  .balloon{width:18px; height:24px; border-radius:50% 50% 50% 50% / 60% 60% 40% 40%; box-shadow:0 3px 10px rgba(0,0,0,.15)}
+
+  /* 长按彩蛋样式 */
+  .secret{ outline:2px dashed rgba(0,0,0,.2); box-shadow:0 6px 16px rgba(0,0,0,.18) !important; }
+
+  /* 自动播放被拦截时的蒙层 */
+  .unlock-mask{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:10001; background:rgba(255,255,255,0); -webkit-tap-highlight-color: transparent; }
   .unlock-mask.show{ display:flex; }
-  .unlock-card{background:rgba(15,23,42,.75); color:#fff; padding:10px 14px; border-radius:12px; font-size:14px; box-shadow:0 6px 24px rgba(0,0,0,.25)}
+  .unlock-card{ background:rgba(0,0,0,.65); color:#fff; padding:10px 14px; border-radius:12px; font-size:14px; box-shadow:0 6px 24px rgba(0,0,0,.25); }
+
+  @media (prefers-reduced-motion: reduce) { .tile,.particle{animation:none !important} }
 </style>
 </head>
 <body>
+  <!-- DOM 动画舞台 -->
+  <div id="stage"></div>
+
+  <!-- GPU 粒子字形（Three.js 渲染到这个 Canvas） -->
   <div id="gpuRoot"><canvas id="gpuCanvas"></canvas></div>
   <div id="gpuDiag" aria-hidden="true"></div>
 
-  <!-- 顶部控件（保留功能但不再是黑色块） -->
-  <div class="toolbar">
-    <button id="modeBtn" class="btn" aria-haspopup="true" aria-expanded="false">模式：GPU 字形粒子</button>
-    <button id="clearBtn" class="btn">清屏</button>
-    <button id="textBtn" class="btn">字：LEA</button>
+  <!-- 音乐（自动播放 + 循环） -->
+  <audio id="bgm" preload="auto" loop autoplay playsinline>
+    <source src="lea.mp3" type="audio/mpeg">
+  </audio>
 
-    <button id="musicBtn" class="btn">音乐：暂停</button>
+  <!-- 顶部工具栏 -->
+  <div class="toolbar">
+    <button id="modeBtn" class="btn" aria-haspopup="true" aria-expanded="false">模式：LEA</button>
+    <button id="closeAll" class="btn">清屏</button>
+
+    <!-- 仅 GPU 模式可见：修改字形 -->
+    <button id="gpuTextBtn" class="btn" style="display:none">字：LEA</button>
+
+    <!-- 音乐按钮 + 面板 -->
+    <button id="musicBtn" class="btn">音乐：播放</button>
     <div id="musicMenu" class="menu" aria-label="音乐菜单">
-      <div style="padding:10px 12px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="color:#475569;font-size:12px;width:40px">音量</span>
-          <input id="musicVol" type="range" min="0" max="1" step="0.01" value="0.6" style="width:140px">
-          <button id="muteBtn" class="btn" style="padding:6px 10px;font-size:12px;">静音</button>
+      <div style="padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="color:#bbb;font-size:12px;width:36px">音量</span>
+          <input id="musicVol" type="range" min="0" max="1" step="0.01" value="0.6" style="width:120px">
+          <button id="muteBtn" class="btn" style="padding:6px 10px;font-size:12px;background:#333">静音</button>
         </div>
       </div>
     </div>
 
-    <div id="modeMenu" class="menu" aria-label="模式菜单" role="menu">
+    <!-- 模式菜单：GPU 放在最后一个 -->
+    <div id="modeMenu" class="menu" aria-label="模式菜单">
+      <button data-mode="LEA">LEA 字形 + 弹窗</button>
+      <button data-mode="HEART_RAIN">心形雨</button>
+      <button data-mode="FIREWORKS">烟花</button>
+      <button data-mode="SNOW">雪花</button>
+      <button data-mode="BALLOONS">气球上浮</button>
+      <button data-mode="CONFETTI">Confetti</button>
+      <div style="height:1px;background:rgba(255,255,255,.12)"></div>
       <button data-mode="GPU">GPU 字形粒子（高性能）</button>
-      <div style="height:1px;background:rgba(15,23,42,.08)"></div>
-      <button data-mode="LEA" disabled style="opacity:.45;cursor:not-allowed">LEA 字形 + 弹窗（暂不启用）</button>
     </div>
   </div>
 
-  <!-- 音乐 -->
-  <audio id="bgm" preload="auto" loop autoplay playsinline>
-    <source src="lea.mp3" type="audio/mpeg">
-  </audio>
+  <!-- 自动播放兜底提示 -->
   <div id="unlockMask" class="unlock-mask"><div class="unlock-card">🔊 轻触屏幕开启音乐</div></div>
 
-<script type="module">
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+<!-- ===== 主脚本：保留你所有 DOM 模式功能，并集成 GPU 模式开关 ===== -->
+<script>
+/* ===================== 全局配置（DOM 模式） ===================== */
+const WORD = "LEA";
+const START_MS = 200;
+const END_MS   = 20;
+const JITTER_PX = 3;
+const COVER_RATIO = 0.8;
+const CELL_GAP = 4;
+const LEA_FADE_MS = 260;
 
-/* =============== 马卡龙配色（去除黑色） =============== */
-const PASTEL = ['#fbb6ce','#a8c5ff','#b9f5d0','#ffe39b','#ffd3b6','#d9c7ff']; // 柔和、亮、无黑
-const GPUPARAM = {
-  COUNT: 70000,
-  BASE_SIZE: 0.010,        // 更细腻
-  DAMPING: 0.92,
-  DRIVE: 0.28,
-  EDGE_THR: 0.5,
-  NOISE: 0.0035,           // 稍微更稳
-  ENERGY_SCALE: 1.6,
-  MASK_W: 1400,            // 提高清晰度
-  MASK_H: 560,
-  PALETTE: PASTEL
+const WIN_W = 240;
+const WIN_H = 64;
+const JITTER_RATIO = 0.4;
+
+const TIPS_SETS = [
+  ['Lea按时吃饭~','lea保持微笑呀','Lea早点回家~','记得吃水果','Lea你已经很棒了呀~','好好爱自己','Lea秋招上岸','梦想成真','Lea春招上岸','顺顺利利','Lea按时吃饭','愿所有烦恼都消失','别熬夜','Lea今天过得开心嘛','悉尼天冷了，多穿衣服'],
+  ['今天也要开心','喝水！','深呼吸三次','早点睡别熬夜','你值得最好的一切','小确幸正在路上','去散个步吧','做一件小小但正确的事'],
+  ['祝你一路顺风','万事顺利','所愿皆成真','平安喜乐','好事发生在今天','好运排队来']
+];
+const PALETTES = [
+  ['#ffd3e0','#bde0fe','#c7f9cc','#e9e5ff','#fff6b3','#ffcfb3'],
+  ['#f9e2af','#a6e3a1','#f5c2e7','#cba6f7','#89dceb','#fab387'],
+  ['#ffedd5','#d1fae5','#e0e7ff','#fef9c3','#fee2e2','#f1f5f9']
+];
+let TIPS = TIPS_SETS[0];
+let BG_COLORS = PALETTES[0];
+
+const FONT_5x7 = {
+  'L': ["1....","1....","1....","1....","1....","1....","11111"],
+  'E': ["11111","1....","1....","1111.","1....","1....","11111"],
+  'A': [".111.","1...1","1...1","11111","1...1","1...1","1...1"],
+  ' ': [".....",".....",".....",".....",".....",".....","....."],
 };
 
-const gpuCanvas = document.getElementById('gpuCanvas');
-const gpuDiag   = document.getElementById('gpuDiag');
-const bgm       = document.getElementById('bgm');
-const musicBtn  = document.getElementById('musicBtn');
+const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+const randInt = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+const choice = arr => arr[Math.floor(Math.random()*arr.length)];
+
+/* 计时器池 */
+const timers = new Set();
+const intervals = new Set();
+function later(fn,ms){ const id=setTimeout(()=>{timers.delete(id); fn();},ms); timers.add(id); return id; }
+function every(fn,ms){ const id=setInterval(fn,ms); intervals.add(id); return id; }
+function clearAllTimers(){ for(const t of timers) clearTimeout(t); timers.clear(); for(const i of intervals) clearInterval(i); intervals.clear(); }
+
+/* ===================== DOM 模式：卡片/粒子 ===================== */
+function makeTile(stage, spec, text="", tag=null){
+  const div = document.createElement('div');
+  div.className = 'tile';
+  div.dataset.tag = tag || '';
+  div.style.left = spec.x + 'px';
+  div.style.top  = spec.y + 'px';
+  div.style.width  = spec.w + 'px';
+  div.style.height = spec.h + 'px';
+  div.style.background = choice(BG_COLORS);
+  div.style.fontSize = Math.max(10, Math.floor(Math.min(spec.w,spec.h)/2.9)) + 'px';
+  div.textContent = text;
+
+  const clickBurst = (e) => {
+    const rect = div.getBoundingClientRect();
+    const cx = rect.left + rect.width/2 + window.scrollX;
+    const cy = rect.top  + rect.height/2 + window.scrollY;
+    Math.random() < 0.5 ? burstHearts(cx, cy) : burstConfetti(cx, cy);
+  };
+
+  let pressTimer=null, pressed=false;
+  const onDown = ()=>{ pressed = true; pressTimer = setTimeout(()=>{ if(pressed){ div.classList.add('secret'); div.textContent = choice(['🎁 你超棒','💖 小小好运已签收','🌟 今日限定好心情','🎯 一切顺利']); div.animate([{transform:'scale(1)'},{transform:'scale(1.06)'}], {duration:220, fill:'forwards', easing:'ease-out'});} }, 600); };
+  const onUp   = ()=>{ if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; } if(pressed){ if(!div.classList.contains('secret')) clickBurst(); } pressed=false; };
+
+  div.addEventListener('pointerdown', onDown);
+  window.addEventListener('pointerup', onUp, {once:false});
+
+  stage.appendChild(div);
+  div.animate([{opacity:0,transform:'scale(0.92)'},{opacity:1,transform:'scale(1)'}], {duration:180, easing:'ease-out'});
+  return div;
+}
+function spawnParticle(cls, styles, keyframes, options){
+  const p = document.createElement('div');
+  p.className = 'particle ' + cls;
+  Object.assign(p.style, styles);
+  document.getElementById('stage').appendChild(p);
+  const anim = p.animate(keyframes, options);
+  anim.onfinish = ()=>p.remove();
+  return p;
+}
+function burstHearts(x,y,count=10){
+  for(let i=0;i<count;i++){
+    const ang = Math.random()*Math.PI*2;
+    const dist = 10+Math.random()*24;
+    const tx = x + Math.cos(ang)*dist;
+    const ty = y + Math.sin(ang)*dist - 10;
+    spawnParticle('heart', {left:x+'px', top:y+'px', color:choice(['#ff4d6d','#ff8fa3','#e03131','#f783ac'])}, [
+      {transform:'translate(-50%,-50%) scale(0.8)', opacity:0.0},
+      {transform:`translate(${tx-x-50}%, ${ty-y-50}%) scale(1.2)`, opacity:1, offset:.6},
+      {transform:`translate(${tx-x-50}%, ${ty-y-70}%) scale(0.9)`, opacity:0}
+    ], {duration:600+Math.random()*400, easing:'ease-out', fill:'forwards'}).textContent='❤';
+  }
+}
+function burstConfetti(x,y,count=14){
+  for(let i=0;i<count;i++){
+    const col = choice(['#f94144','#f3722c','#f9c74f','#90be6d','#577590','#f72585','#4cc9f0']);
+    const rx = (Math.random()-0.5)*60;
+    const ry = (Math.random()-0.5)*40;
+    const rot = (Math.random()*720-360)+'deg';
+    spawnParticle('confetti', {left:(x-4)+'px', top:(y-6)+'px', background:col}, [
+      {transform:'translate(0,0) rotate(0)', opacity:1},
+      {transform:`translate(${rx}px, ${40+ry}px) rotate(${rot})`, opacity:0}
+    ], {duration:700+Math.random()*500, easing:'cubic-bezier(.2,.8,.2,1)', fill:'forwards'});
+  }
+}
+
+/* ===================== LEA 阶段 + 满屏弹窗 ===================== */
+function buildMask(text, spaceCols=1){
+  const rows = 7;
+  const maskRows = Array(rows).fill("");
+  const chars = [...text.toUpperCase()];
+  chars.forEach((ch, idx) => {
+    const pat = FONT_5x7[ch] || FONT_5x7[' '];
+    for(let r=0;r<rows;r++){
+      maskRows[r] += pat[r];
+      if(idx !== chars.length-1) maskRows[r] += ".".repeat(spaceCols);
+    }
+  });
+  return maskRows;
+}
+function collectLetterPositions(maskRows, sw, sh){
+  const rows = maskRows.length;
+  const cols = maskRows.reduce((m,row)=>Math.max(m,row.length),0);
+  if(!cols) return {positions:[]};
+
+  const totalWTarget = Math.floor(sw * COVER_RATIO);
+  const pitchX = Math.max(12, Math.floor(totalWTarget / cols));
+  const pitchY = Math.max(12, pitchX);
+
+  const dotW = Math.max(10, pitchX - CELL_GAP);
+  const dotH = Math.max(10, pitchY - CELL_GAP);
+
+  const totalW = cols * pitchX;
+  const totalH = rows * pitchY;
+
+  const x0 = Math.floor((sw - totalW)/2);
+  const y0 = Math.floor((sh - totalH)/3);
+
+  const positions = [];
+  for(let c=0;c<cols;c++){
+    for(let r=0;r<rows;r++){
+      const ch = (maskRows[r][c] ?? '.');
+      if(ch==='1'){
+        const jx = randInt(-JITTER_PX, JITTER_PX);
+        const jy = randInt(-JITTER_PX, JITTER_PX);
+        let x = x0 + c*pitchX + jx;
+        let y = y0 + r*pitchY + jy;
+        const w = dotW, h = dotH;
+        x = clamp(x, 0, sw - w);
+        y = clamp(y, 0, sh - h);
+        positions.push({x,y,w,h});
+      }
+    }
+  }
+  return {positions};
+}
+function collectRandomPositions(sw, sh){
+  const n_windows = Math.floor((sw * sh) / (WIN_W * WIN_H) * 1.5);
+  const positions = [];
+  for(let i=0;i<n_windows;i++){
+    const jitter_w = Math.floor(WIN_W * JITTER_RATIO);
+    const jitter_h = Math.floor(WIN_H * JITTER_RATIO);
+    const w = WIN_W + randInt(-jitter_w, jitter_w);
+    const h = WIN_H + randInt(-jitter_h, jitter_h);
+    const x = randInt(0, Math.max(0, sw - w));
+    const y = randInt(0, Math.max(0, sh - h));
+    positions.push({x,y,w,h});
+  }
+  return positions.sort(()=>Math.random()-0.5);
+}
+function fadeOutAndRemove(elems, ms=LEA_FADE_MS){
+  return new Promise(resolve=>{
+    if(!elems || elems.length===0){ resolve(); return; }
+    let done = 0;
+    for(const el of elems){
+      el.animate([{opacity:1,transform:'scale(1)'},{opacity:0,transform:'scale(0.9)'}], {duration:ms, easing:'ease-in'}).onfinish = ()=>{
+        el.remove(); if(++done === elems.length) resolve();
+      };
+    }
+  });
+}
+async function runLetters(word="LEA"){
+  const stage = document.getElementById('stage');
+  Array.from(stage.querySelectorAll('.tile[data-tag="phase1"]')).forEach(n=>n.remove());
+
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const mask = buildMask(word, 1);
+  const {positions} = collectLetterPositions(mask, sw, sh);
+  const total = positions.length;
+
+  const created = [];
+  await new Promise(res=>{
+    let i = 0;
+    (function spawn(){
+      if(i>=total){ res(); return; }
+      const p = (i+1)/total;
+      const interval = Math.max(END_MS, Math.floor(START_MS*(1-p)*(1-p) + END_MS*p));
+      created.push( makeTile(stage, positions[i], "", "phase1") );
+      i++; later(spawn, interval);
+    })();
+  });
+
+  await fadeOutAndRemove(created, LEA_FADE_MS);
+}
+function runFill(){
+  const stage = document.getElementById('stage');
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const positions = collectRandomPositions(sw, sh);
+  const total = positions.length;
+  let i = 0;
+  (function spawn(){
+    if(i>=total) return;
+    const p = (i+1)/total;
+    const interval = Math.max(END_MS, Math.floor(START_MS*(1-p)*(1-p) + END_MS*p));
+    makeTile(stage, positions[i], choice(TIPS), "phase2");
+    i++; later(spawn, interval);
+  })();
+
+  later(async ()=>{
+    const cards = Array.from(stage.querySelectorAll('.tile[data-tag="phase2"]'));
+    if(!cards.length) return;
+    const pickN = Math.max(8, Math.floor(cards.length*0.25));
+    const chosen = cards.sort(()=>Math.random()-0.5).slice(0, pickN);
+    await new Promise(done=>{
+      let finished = 0;
+      chosen.forEach(el=>{
+        el.animate(
+          [{transform:'translateY(0) rotate(0)', opacity:1},
+           {transform:`translateY(-40px) rotate(${randInt(-12,12)}deg)`, opacity:0}],
+          {duration:500+Math.random()*300, easing:'ease-in'}
+        ).onfinish=()=>{ el.remove(); if(++finished===chosen.length) done(); };
+      });
+    });
+    BG_COLORS = choice(PALETTES);
+    TIPS = choice(TIPS_SETS);
+    runFill();
+  }, 800);
+}
+
+/* ===================== 其它 DOM 模式 ===================== */
+function modeHeartRain(){
+  const st = document.getElementById('stage');
+  const spawn = ()=> {
+    const x = randInt(20, st.clientWidth-20);
+    const y = -20;
+    const dur = 3000 + Math.random()*2000;
+    const p = spawnParticle('heart', {left:x+'px', top:y+'px', color:choice(['#ff4d6d','#ff8fa3','#f06595','#e03131'])}, [
+      {transform:'translate(-50%,-50%) scale(0.8)', opacity:0},
+      {transform:`translate(-50%, ${st.clientHeight+40}px) scale(1.1)`, opacity:1}
+    ], {duration:dur, easing:'linear', fill:'forwards'});
+    p.textContent='❤';
+  };
+  every(spawn, 120);
+}
+function modeSnow(){
+  const st = document.getElementById('stage');
+  const spawn = ()=> {
+    const x = randInt(0, st.clientWidth);
+    const size = randInt(6,12);
+    const dur = 6000 + Math.random()*4000;
+    spawnParticle('snow', {left:x+'px', top:'-10px', width:size+'px', height:size+'px', opacity:.9}, [
+      {transform:`translateY(${st.clientHeight+20}px)`, opacity:.95},{opacity:0}
+    ], {duration:dur, easing:'linear', fill:'forwards'});
+  };
+  every(spawn, 80);
+}
+function modeBalloons(){
+  const st = document.getElementById('stage');
+  const spawn = ()=> {
+    const x = randInt(20, st.clientWidth-20);
+    const clr = choice(['#ffadad','#ffd6a5','#fdffb6','#caffbf','#9bf6ff','#a0c4ff','#bdb2ff']);
+    const dur = 6000 + Math.random()*4000;
+    spawnParticle('balloon', {left:x+'px', bottom:'-30px', background:clr}, [
+      {transform:'translate(-50%, 0)'},{transform:`translate(-50%, -${st.clientHeight+60}px)`, opacity:.2}
+    ], {duration:dur, easing:'cubic-bezier(.25,.8,.2,1)', fill:'forwards'});
+  };
+  every(spawn, 280);
+}
+function modeConfetti(){
+  const st = document.getElementById('stage');
+  const spawn = ()=> {
+    const x = randInt(0, st.clientWidth);
+    const y = -10;
+    const dur = 2500 + Math.random()*2000;
+    const rot = (Math.random()*720-360)+'deg';
+    spawnParticle('confetti', {left:x+'px', top:y+'px', background:choice(['#f94144','#f3722c','#f9c74f','#90be6d','#577590','#f72585','#4cc9f0'])}, [
+      {transform:'translateY(0) rotate(0)', opacity:1},
+      {transform:`translateY(${st.clientHeight+20}px) rotate(${rot})`, opacity:.9}
+    ], {duration:dur, easing:'linear', fill:'forwards'});
+  };
+  every(spawn, 40);
+}
+function modeFireworks(){
+  const st = document.getElementById('stage');
+  const fire = ()=>{
+    const cx = randInt(80, st.clientWidth-80);
+    const cy = randInt(80, Math.max(120, st.clientHeight*0.6));
+    spawnParticle('particle', {left:cx+'px', top:(st.clientHeight+20)+'px', width:'2px', height:'12px', background:'#fff'}, [
+      {transform:`translate(-50%, -${st.clientHeight - cy}px)`, opacity:1},{opacity:0}
+    ], {duration:700, easing:'cubic-bezier(.3,.9,.2,1)', fill:'forwards'});
+    later(()=>burstConfetti(cx, cy, 24), 680);
+  };
+  every(fire, 900);
+}
+
+/* ===================== GPU 集成：显示/隐藏 & 模式切换 ===================== */
+const gpuRoot   = document.getElementById('gpuRoot');
+const gpuTextBtn= document.getElementById('gpuTextBtn');
+function showGPU(show){
+  gpuRoot.style.display = show ? 'block' : 'none';
+  document.getElementById('stage').style.visibility = show ? 'hidden' : 'visible';
+  gpuTextBtn.style.display = show ? 'inline-block' : 'none';
+}
+
+let CURRENT_MODE = 'LEA';
+function closeAll(){
+  clearAllTimers();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = '';
+}
+async function startLEAFlow(){
+  closeAll(); showGPU(false);
+  BG_COLORS = PALETTES[0];
+  TIPS = TIPS_SETS[0];
+  await runLetters(WORD);
+  runFill();
+
+  let resizeTimer=null;
+  const onResize = ()=>{
+    clearTimeout(resizeTimer);
+    resizeTimer = later(async ()=>{
+      if(CURRENT_MODE!=='LEA') return;
+      closeAll(); await runLetters(WORD); runFill();
+    }, 250);
+  };
+  window.addEventListener('resize', onResize, {once:false});
+}
+
+function setMode(m){
+  CURRENT_MODE = m;
+  document.getElementById('modeBtn').textContent = '模式：' + ({
+    'LEA':'LEA','HEART_RAIN':'心形雨','FIREWORKS':'烟花','SNOW':'雪花','BALLOONS':'气球上浮','CONFETTI':'Confetti','GPU':'GPU 字形粒子'
+  }[m] || m);
+
+  // 若切出 GPU，先停
+  if(window.GPUGlyph && typeof window.GPUGlyph.stop==='function'){ window.GPUGlyph.stop(); }
+
+  closeAll();
+  if(m==='LEA'){ showGPU(false); startLEAFlow(); return; }
+  if(m==='HEART_RAIN'){ showGPU(false); modeHeartRain(); return; }
+  if(m==='FIREWORKS'){ showGPU(false); modeFireworks(); return; }
+  if(m==='SNOW'){ showGPU(false); modeSnow(); return; }
+  if(m==='BALLOONS'){ showGPU(false); modeBalloons(); return; }
+  if(m==='CONFETTI'){ showGPU(false); modeConfetti(); return; }
+  if(m==='GPU'){ showGPU(true); window.GPUGlyph?.start({ text: WORD }); return; }
+}
+
+/* ===================== 顶部菜单 & 音乐控制 ===================== */
+const modeBtn  = document.getElementById('modeBtn');
+const modeMenu = document.getElementById('modeMenu');
+modeBtn.addEventListener('click', ()=>{ modeMenu.classList.toggle('open'); modeBtn.setAttribute('aria-expanded', modeMenu.classList.contains('open')?'true':'false'); });
+modeMenu.addEventListener('click', (e)=>{
+  const m = e.target.getAttribute('data-mode'); if(!m) return;
+  modeMenu.classList.remove('open'); modeBtn.setAttribute('aria-expanded','false'); setMode(m);
+});
+document.addEventListener('click', (e)=>{ if(!modeMenu.contains(e.target) && e.target!==modeBtn){ modeMenu.classList.remove('open'); modeBtn.setAttribute('aria-expanded','false'); }});
+
+document.getElementById('closeAll').addEventListener('click', ()=>{
+  if(CURRENT_MODE==='GPU'){ window.GPUGlyph?.resetParticles?.(); } else { closeAll(); }
+}, {passive:true});
+
+const bgm = document.getElementById('bgm');
+const musicBtn = document.getElementById('musicBtn');
 const musicMenu = document.getElementById('musicMenu');
 const volSlider = document.getElementById('musicVol');
 const muteBtn   = document.getElementById('muteBtn');
 const unlockMask= document.getElementById('unlockMask');
-const modeBtn   = document.getElementById('modeBtn');
-const modeMenu  = document.getElementById('modeMenu');
-const clearBtn  = document.getElementById('clearBtn');
-const textBtn   = document.getElementById('textBtn');
 
-let word = 'LEA';
+// 初始化音量
+try { const lastVol = localStorage.getItem('bgm.volume'); bgm.volume = lastVol!==null ? Math.min(1, Math.max(0, parseFloat(lastVol))) : 0.6; volSlider.value = String(bgm.volume); } catch (_) { bgm.volume = 0.6; }
 
-/* =============== 音频控制（保持不变） =============== */
-try{ const lastVol = localStorage.getItem('bgm.volume'); bgm.volume = lastVol!==null ? Math.max(0,Math.min(1,parseFloat(lastVol))) : 0.6; volSlider.value = String(bgm.volume); }catch(e){}
+// 自动播放尝试
 async function autoStartBgm(){
-  try{ bgm.muted=false; await bgm.play(); musicBtn.textContent='音乐：暂停'; unlockMask.classList.remove('show'); }
+  try{ bgm.muted = false; await bgm.play(); musicBtn.textContent = '音乐：暂停'; unlockMask.classList.remove('show'); }
   catch(e){
     unlockMask.classList.add('show');
-    const once = async()=>{ unlockMask.classList.remove('show'); document.removeEventListener('pointerdown', once, {capture:true}); try{ await bgm.play(); musicBtn.textContent='音乐：暂停'; }catch(_){} };
+    const once = async ()=>{ unlockMask.classList.remove('show'); document.removeEventListener('pointerdown', once, {capture:true}); try{ await bgm.play(); musicBtn.textContent='音乐：暂停'; }catch(_){ } };
     document.addEventListener('pointerdown', once, {once:true, capture:true});
   }
 }
-musicBtn.addEventListener('click', ()=> musicMenu.classList.toggle('open'));
-document.addEventListener('click', (e)=>{ if(!musicMenu.contains(e.target) && e.target!==musicBtn){ musicMenu.classList.remove('open'); }});
-volSlider.addEventListener('input', (e)=>{ const v=parseFloat(e.target.value); bgm.volume=isNaN(v)?0.6:v; try{localStorage.setItem('bgm.volume', String(bgm.volume));}catch(_){}} );
-muteBtn.addEventListener('click', ()=>{ bgm.muted = !bgm.muted; muteBtn.textContent = bgm.muted?'取消静音':'静音';});
-autoStartBgm();
+async function togglePlay() {
+  try { if (bgm.paused){ await bgm.play(); musicBtn.textContent = '音乐：暂停'; } else { bgm.pause(); musicBtn.textContent = '音乐：播放'; } }
+  catch (err) { alert('播放失败：请确认 lea.mp3 已上传且路径正确。'); console.error(err); }
+}
+// 短按播放/暂停；长按只开音量菜单
+let pressTimer = null, pressed = false;
+musicBtn.addEventListener('pointerdown', () => { pressed = true; pressTimer = setTimeout(() => { if (pressed) musicMenu.classList.toggle('open'); }, 400); });
+musicBtn.addEventListener('pointerup', async () => { if (pressTimer) clearTimeout(pressTimer); if (pressed && !musicMenu.classList.contains('open')) await togglePlay(); pressed = false; });
+document.addEventListener('click', (e) => { if (!musicMenu.contains(e.target) && e.target !== musicBtn) musicMenu.classList.remove('open'); });
+volSlider.addEventListener('input', (e) => { const v = parseFloat(e.target.value); bgm.volume = isNaN(v) ? 0.6 : v; try { localStorage.setItem('bgm.volume', String(bgm.volume)); } catch (_) {} });
+muteBtn.addEventListener('click', () => { bgm.muted = !bgm.muted; muteBtn.textContent = bgm.muted ? '取消静音' : '静音'; });
 
-/* =============== GPGPU 粒子 ================= */
+// GPU 模式下改字
+gpuTextBtn.addEventListener('click', ()=>{
+  const s = prompt('输入要显示的文本（≤24 字）', WORD);
+  if(!s) return;
+  const val = s.slice(0,24);
+  gpuTextBtn.textContent = '字：' + val;
+  window.GPUGlyph?.setText?.(val);
+});
+
+// 启动：默认 LEA（第一项）
+window.addEventListener('load', ()=>{ setMode('LEA'); musicBtn.textContent = bgm.paused ? '音乐：播放' : '音乐：暂停'; autoStartBgm(); });
+</script>
+
+<!-- ===== GPU 粒子字形引擎（独立模块脚本） ===== -->
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+
+const GPUPARAM = {
+  COUNT: 70000,
+  BASE_SIZE: 0.010,
+  DAMPING: 0.92,
+  DRIVE: 0.28,
+  EDGE_THR: 0.5,
+  NOISE: 0.0035,
+  ENERGY_SCALE: 1.6,
+  MASK_W: 1400,
+  MASK_H: 560,
+  PALETTE: ['#fbb6ce','#a8c5ff','#b9f5d0','#ffe39b','#ffd3b6','#d9c7ff'] // 马卡龙，无黑色
+};
+
+const gpuCanvas = document.getElementById('gpuCanvas');
+const bgm = document.getElementById('bgm');
+
 const GPU = {
   renderer:null, scene:null, camera:null,
   compScene:null, compCam:null, compMat:null,
@@ -149,7 +571,7 @@ function initGPU(){
   GPU.renderer = new THREE.WebGLRenderer({canvas:gpuCanvas, context:gl});
   GPU.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   GPU.renderer.setSize(innerWidth, innerHeight);
-  GPU.renderer.setClearColor(0xffffff, 1); // 白色背景
+  GPU.renderer.setClearColor(0xffffff, 1); // 白底
 
   if(!GPU.renderer.capabilities.isWebGL2) alert('需要 WebGL2');
   if(!gl.getExtension('EXT_color_buffer_float')) alert('需要 EXT_color_buffer_float');
@@ -157,16 +579,14 @@ function initGPU(){
   GPU.scene  = new THREE.Scene();
   GPU.camera = new THREE.OrthographicCamera(-1,1,1,-1,-10,10);
 
-  // 文本遮罩（flipY=true + 正向 v，文字不倒）
+  // 文本遮罩（flipY=true + 正向 v）
   GPU.maskCanvas = document.createElement('canvas');
   GPU.maskCanvas.width = GPUPARAM.MASK_W; GPU.maskCanvas.height = GPUPARAM.MASK_H;
   GPU.maskTex = new THREE.CanvasTexture(GPU.maskCanvas);
-  GPU.maskTex.minFilter = THREE.LinearFilter;
-  GPU.maskTex.magFilter = THREE.LinearFilter;
-  GPU.maskTex.flipY = true;
-  GPU.maskTex.needsUpdate = true;
+  GPU.maskTex.minFilter = THREE.LinearFilter; GPU.maskTex.magFilter = THREE.LinearFilter;
+  GPU.maskTex.flipY = true; GPU.maskTex.needsUpdate = true;
 
-  // 状态纹理
+  // 状态纹理 & Ping-Pong RT
   GPU.texSide = Math.ceil(Math.sqrt(GPUPARAM.COUNT));
   function makeRT(){ return new THREE.WebGLRenderTarget(GPU.texSide, GPU.texSide, {
     type:THREE.FloatType, format:THREE.RGBAFormat, minFilter:THREE.NearestFilter, magFilter:THREE.NearestFilter, depthBuffer:false, stencilBuffer:false
@@ -184,7 +604,7 @@ function initGPU(){
   GPU.stateTex = new THREE.DataTexture(initArr, GPU.texSide, GPU.texSide, THREE.RGBAFormat, THREE.FloatType);
   GPU.stateTex.needsUpdate = true;
 
-  // 计算 pass
+  // 计算 Pass
   const quadGeom = new THREE.PlaneGeometry(2,2);
   GPU.compMat = new THREE.RawShaderMaterial({
     glslVersion: THREE.GLSL3,
@@ -218,7 +638,7 @@ function initGPU(){
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
       float rand(vec2 p){ return hash(p + uTime*0.123); }
 
-      // 世界坐标 -> 遮罩坐标（正向 v；与 flipY=true 配对）
+      // 世界 -> mask uv（正向 v；与 flipY=true 配）
       vec2 worldToMask(vec2 pos){
         float u = (pos.x / uAspect + 1.0) * 0.5;
         float v = (pos.y + 1.0) * 0.5;
@@ -235,10 +655,12 @@ function initGPU(){
       void main(){
         vec4 s = texture(prevTex, vUv);
         vec2 pos = s.xy; vec2 vel = s.zw;
+
         vec3 ag = sampleAlphaGrad(pos);
         float a = ag.x; vec2 grad = vec2(ag.y, ag.z);
         float sgn = (a < uEdgeThr) ? 1.0 : -0.5;
         vec2 F = sgn * grad * uDrive * (0.5 + uEnergy);
+
         vec2 N = (vec2(rand(vUv+0.37), rand(vUv+0.79))*2.0-1.0) * uNoise * (0.6 + uEnergy);
         vel = (vel + F) * uDamping + N;
         pos += vel * uDt;
@@ -257,7 +679,7 @@ function initGPU(){
   GPU.compCam   = new THREE.OrthographicCamera(-1,1,1,-1,-1,1);
   GPU.compScene.add(new THREE.Mesh(quadGeom, GPU.compMat));
 
-  // 渲染 pass（Instanced）
+  // 渲染 Pass（Instanced）
   const quad = new THREE.PlaneGeometry(1,1);
   GPU.renderMat = new THREE.RawShaderMaterial({
     glslVersion: THREE.GLSL3,
@@ -309,9 +731,8 @@ function initGPU(){
         return (k==0)?uP0:(k==1)?uP1:(k==2)?uP2:(k==3)?uP3:(k==4)?uP4:uP5;
       }
       void main(){
-        // 更柔和的圆点：边缘更长的软化区 + 微透明
         float r = length(vLocal);
-        float alpha = smoothstep(0.52, 0.36, r);    // 扩大软边区
+        float alpha = smoothstep(0.52, 0.36, r);
         vec3 col = pick(vColIndex);
         outColor = vec4(col, alpha*0.92);
       }
@@ -335,15 +756,28 @@ function initGPU(){
     GPU.renderer.setSize(innerWidth, innerHeight);
     GPU.renderMat.uniforms.uAspect.value = innerWidth/innerHeight;
     GPU.compMat.uniforms.uAspect.value = innerWidth/innerHeight;
-    drawTextMask(word); // 重新适配
+    drawTextMask(currentText); // 重新适配
   });
 }
-
+function seedState(){
+  const initArr = new Float32Array(GPU.texSide*GPU.texSide*4);
+  for(let i=0;i<GPUPARAM.COUNT;i++){
+    const k=i*4;
+    initArr[k]   = (Math.random()*2-1) * (innerWidth/innerHeight) * 0.98;
+    initArr[k+1] = (Math.random()*2-1) * 0.98;
+    initArr[k+2] = (Math.random()*2-1) * 0.015;
+    initArr[k+3] = (Math.random()*2-1) * 0.015;
+  }
+  GPU.stateTex = new THREE.DataTexture(initArr, GPU.texSide, GPU.texSide, THREE.RGBAFormat, THREE.FloatType);
+  GPU.stateTex.needsUpdate = true;
+}
+let currentText = 'LEA';
 function drawTextMask(text){
+  currentText = text;
   const c = GPU.maskCanvas, mctx = c.getContext('2d');
   const W=c.width, H=c.height;
   mctx.clearRect(0,0,W,H);
-  // 先铺白，再用文字挖空 alpha（留出白底视觉）
+  // 白底；用 destination-out 挖掉字形区域（粒子向“边缘/内部”聚）
   mctx.fillStyle='#fff'; mctx.fillRect(0,0,W,H);
   mctx.globalCompositeOperation='destination-out';
   mctx.fillStyle='#000';
@@ -362,7 +796,6 @@ function drawTextMask(text){
   mctx.globalCompositeOperation='source-over';
   GPU.maskTex.needsUpdate = true;
 }
-
 function computeStep(dt, energy){
   GPU.compMat.uniforms.uDt.value = dt;
   GPU.compMat.uniforms.uTime.value += dt;
@@ -377,7 +810,6 @@ function computeStep(dt, energy){
   GPU.stateTex = null;
   const t = GPU.readRT; GPU.readRT = GPU.writeRT; GPU.writeRT = t;
 }
-
 function loop(t){
   if(!GPU.running) return;
   const now = t || performance.now();
@@ -393,41 +825,19 @@ function loop(t){
   requestAnimationFrame(loop);
 }
 
-function startGPU(text){
-  initGPU();
-  word = (text||word||'LEA').slice(0,24);
-  drawTextMask(word);
-  GPU.running = true;
-  GPU.last = performance.now();
-  requestAnimationFrame(loop);
-}
-function resetParticles(){
-  const initArr = new Float32Array(GPU.texSide*GPU.texSide*4);
-  for(let i=0;i<GPUPARAM.COUNT;i++){
-    const k=i*4;
-    initArr[k]   = (Math.random()*2-1) * (innerWidth/innerHeight) * 0.98;
-    initArr[k+1] = (Math.random()*2-1) * 0.98;
-    initArr[k+2] = (Math.random()*2-1) * 0.015;
-    initArr[k+3] = (Math.random()*2-1) * 0.015;
-  }
-  GPU.stateTex = new THREE.DataTexture(initArr, GPU.texSide, GPU.texSide, THREE.RGBAFormat, THREE.FloatType);
-  GPU.stateTex.needsUpdate = true;
-}
-
-/* =============== 顶部按钮交互（精简，只保留GPU） =============== */
-modeBtn.addEventListener('click', ()=>{ modeMenu.classList.toggle('open'); modeBtn.setAttribute('aria-expanded', modeMenu.classList.contains('open')?'true':'false'); });
-document.addEventListener('click', (e)=>{ if(!modeMenu.contains(e.target) && e.target!==modeBtn){ modeMenu.classList.remove('open'); modeBtn.setAttribute('aria-expanded','false'); }});
-clearBtn.addEventListener('click', resetParticles);
-textBtn.addEventListener('click', ()=>{
-  const s = prompt('输入要显示的文本（≤24 字）', word);
-  if(!s) return;
-  word = s.slice(0,24);
-  textBtn.textContent = '字：' + word;
-  drawTextMask(word);
-});
-
-/* 启动 */
-startGPU('LEA');
+/* ===== 向主脚本暴露的控制 API ===== */
+window.GPUGlyph = {
+  start({text='LEA'}={}){
+    initGPU();
+    drawTextMask(text);
+    GPU.running = true;
+    GPU.last = performance.now();
+    requestAnimationFrame(loop);
+  },
+  stop(){ GPU.running = false; },
+  resetParticles(){ seedState(); },
+  setText(text='LEA'){ drawTextMask(String(text).slice(0,24)); }
+};
 </script>
 </body>
 </html>
