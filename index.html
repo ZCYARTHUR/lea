@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>LEA 动画 · 多模式</title>
+<title>LEA 动画 · 多模式（自动播放音乐）</title>
 <style>
   :root{
     --btn-bg:#000; --btn-fg:#fff;
@@ -54,6 +54,18 @@
     box-shadow:0 6px 16px rgba(0,0,0,.18) !important;
   }
 
+  /* 自动播放被拦截时的“轻触开启音乐”蒙层 */
+  .unlock-mask{
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    z-index:10001; background:rgba(255,255,255,0);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .unlock-mask.show{ display:flex; }
+  .unlock-card{
+    background:rgba(0,0,0,.65); color:#fff; padding:10px 14px; border-radius:12px;
+    font-size:14px; box-shadow:0 6px 24px rgba(0,0,0,.25);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .tile,.particle{animation:none !important}
   }
@@ -62,14 +74,16 @@
 <body>
   <div id="stage"></div>
 
-  <!-- 背景音乐（循环，首次需用户点击触发） -->
-  <audio id="bgm" preload="metadata" loop>
+  <!-- 自动播放 + 循环；playsinline 避免 iOS 拉起全屏；preload 提前缓冲 -->
+  <audio id="bgm" preload="auto" loop autoplay playsinline>
     <source src="lea.mp3" type="audio/mpeg">
   </audio>
 
+  <!-- 顶部工具栏 -->
   <div class="toolbar">
     <button id="modeBtn" class="btn">模式：LEA</button>
     <button id="closeAll" class="btn">清屏</button>
+
     <!-- 音乐按钮 + 面板 -->
     <button id="musicBtn" class="btn">音乐：播放</button>
     <div id="musicMenu" class="menu" aria-label="音乐菜单">
@@ -90,6 +104,11 @@
       <button data-mode="BALLOONS">气球上浮</button>
       <button data-mode="CONFETTI">Confetti</button>
     </div>
+  </div>
+
+  <!-- 自动播放兜底提示 -->
+  <div id="unlockMask" class="unlock-mask">
+    <div class="unlock-card">🔊 轻触屏幕开启音乐</div>
   </div>
 
 <script>
@@ -351,10 +370,11 @@ function runFill(){
     await new Promise(done=>{
       let finished = 0;
       chosen.forEach(el=>{
-        el.animate([
-          {transform:'translateY(0) rotate(0)', opacity:1},
-          {transform:`translateY(-40px) rotate(${randInt(-12,12)}deg)`, opacity:0}
-        ], {duration:500+Math.random()*300, easing:'ease-in'}).onfinish=()=>{
+        el.animate(
+          [{transform:'translateY(0) rotate(0)', opacity:1},
+           {transform:`translateY(-40px) rotate(${randInt(-12,12)}deg)`, opacity:0}],
+          {duration:500+Math.random()*300, easing:'ease-in'}
+        ).onfinish=()=>{
           el.remove();
           if(++finished===chosen.length) done();
         };
@@ -500,35 +520,39 @@ document.addEventListener('click', (e)=>{
 });
 document.getElementById('closeAll').addEventListener('click', closeAll, {passive:true});
 
-/* ===================== 音乐控制（播放/暂停/音量/静音） ===================== */
+/* ===================== 音乐控制（自动播放 + 兜底解锁 + 菜单） ===================== */
 const bgm = document.getElementById('bgm');
 const musicBtn = document.getElementById('musicBtn');
 const musicMenu = document.getElementById('musicMenu');
 const volSlider = document.getElementById('musicVol');
 const muteBtn = document.getElementById('muteBtn');
+const unlockMask = document.getElementById('unlockMask');
 
-let audioUnlocked = false;
-// iOS/Safari 需“用户手势”解锁
-function unlockAudioOnce() {
-  if (audioUnlocked) return;
-  const p = bgm.play();
-  if (p && typeof p.then === 'function') {
-    p.then(() => { bgm.pause(); audioUnlocked = true; })
-     .catch(()=>{})
-     .finally(()=> document.removeEventListener('pointerdown', unlockAudioOnce, {capture:true}));
-  } else {
-    audioUnlocked = true;
-    document.removeEventListener('pointerdown', unlockAudioOnce, {capture:true});
-  }
-}
-document.addEventListener('pointerdown', unlockAudioOnce, { once:true, capture:true });
-
-// 读取/保存音量
+// 初始化音量
 try {
   const lastVol = localStorage.getItem('bgm.volume');
-  bgm.volume = lastVol !== null ? parseFloat(lastVol) : 0.6;
-  if (!isNaN(bgm.volume)) volSlider.value = String(bgm.volume);
-} catch (_) {}
+  bgm.volume = lastVol !== null ? Math.min(1, Math.max(0, parseFloat(lastVol))) : 0.6;
+  volSlider.value = String(bgm.volume);
+} catch (_) { bgm.volume = 0.6; }
+
+// 自动播放尝试
+async function autoStartBgm(){
+  try{
+    bgm.muted = false;
+    await bgm.play(); // 若被策略拦截，会抛异常
+    musicBtn.textContent = '音乐：暂停';
+    unlockMask.classList.remove('show');
+  }catch(e){
+    // 显示蒙层提示用户轻触解锁
+    unlockMask.classList.add('show');
+    const once = async ()=>{
+      unlockMask.classList.remove('show');
+      document.removeEventListener('pointerdown', once, {capture:true});
+      try{ await bgm.play(); musicBtn.textContent='音乐：暂停'; }catch(_){}
+    };
+    document.addEventListener('pointerdown', once, {once:true, capture:true});
+  }
+}
 
 async function togglePlay() {
   try {
@@ -579,6 +603,7 @@ muteBtn.addEventListener('click', () => {
 window.addEventListener('load', ()=>{
   setMode('LEA');
   musicBtn.textContent = bgm.paused ? '音乐：播放' : '音乐：暂停';
+  autoStartBgm(); // ← 进入页面即尝试播放
 });
 </script>
 </body>
