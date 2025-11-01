@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>LEA 动画</title>
+<style>
+  html,body{height:100%;margin:0;padding:0;overflow:hidden;background:#fff;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  #stage{position:relative;width:100vw;height:100vh}
+  .tile{
+    position:absolute; display:flex; align-items:center; justify-content:center;
+    border-radius:8px; padding:0 4px; box-sizing:border-box;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Arial,Helvetica,sans-serif;
+    line-height:1.1; text-align:center; word-break:break-word;
+  }
+  .btn{
+    position:fixed; right:12px; top:12px; z-index:9999;
+    padding:8px 12px; border-radius:999px; border:0; background:#000; color:#fff;
+    font-size:14px; opacity:.75
+  }
+  .btn:active{opacity:1}
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <button id="closeAll" class="btn">关闭</button>
+
+<script>
+const WORD = "LEA";
+const START_MS = 200;
+const END_MS = 20;
+const JITTER_PX = 3;
+const COVER_RATIO = 0.8;
+const CELL_GAP = 4;
+const SHOW_TIPS = true;
+
+const TIPS = [
+  'Lea按时吃饭~','lea保持微笑呀','Lea早点回家~','记得吃水果','Lea你已经很棒了呀~',
+  '好好爱自己','Lea秋招上岸','梦想成真','', 'Lea春招上岸','顺顺利利',
+  'Lea按时吃饭','愿所有烦恼都消失','别熬夜','Lea今天过得开心嘛','悉尼天冷了，多穿衣服'
+];
+const BG_COLORS = [
+  'lightpink','skyblue','lightgreen','lavender','lightyellow',
+  'plum','coral','bisque','aquamarine','mistyrose','honeydew','lavenderblush','oldlace'
+];
+
+const FONT_5x7 = {
+  'L': ["1....","1....","1....","1....","1....","1....","11111"],
+  'E': ["11111","1....","1....","1111.","1....","1....","11111"],
+  'A': [".111.","1...1","1...1","11111","1...1","1...1","1...1"],
+  ' ': [".....",".....",".....",".....",".....",".....","....."],
+};
+
+function buildMask(text, spaceCols=1){
+  const rows = 7;
+  const maskRows = Array(rows).fill("");
+  const chars = [...text.toUpperCase()];
+  chars.forEach((ch, idx) => {
+    const pat = FONT_5x7[ch] || FONT_5x7[' '];
+    for(let r=0;r<rows;r++){
+      maskRows[r] += pat[r];
+      if(idx !== chars.length-1) maskRows[r] += ".".repeat(spaceCols);
+    }
+  });
+  return maskRows;
+}
+
+function collectPositions(maskRows, sw, sh){
+  const rows = maskRows.length;
+  const cols = maskRows.reduce((m,row)=>Math.max(m,row.length),0);
+  if(!cols) return {positions:[], dotW:0, dotH:0};
+
+  const totalWTarget = Math.floor(sw * COVER_RATIO);
+  const pitchX = Math.max(12, Math.floor(totalWTarget / cols));
+  const pitchY = Math.max(12, pitchX);
+
+  const dotW = Math.max(10, pitchX - CELL_GAP);
+  const dotH = Math.max(10, pitchY - CELL_GAP);
+
+  const totalW = cols * pitchX;
+  const totalH = rows * pitchY;
+
+  const x0 = Math.floor((sw - totalW)/2);
+  const y0 = Math.floor((sh - totalH)/3);
+
+  const positions = [];
+  for(let c=0;c<cols;c++){
+    for(let r=0;r<rows;r++){
+      const ch = (maskRows[r][c] ?? '.');
+      if(ch==='1'){
+        const jx = randInt(-JITTER_PX, JITTER_PX);
+        const jy = randInt(-JITTER_PX, JITTER_PX);
+        let x = x0 + c*pitchX + jx;
+        let y = y0 + r*pitchY + jy;
+        x = clamp(x, 0, sw - dotW);
+        y = clamp(y, 0, sh - dotH);
+        positions.push({x,y,w:dotW,h:dotH});
+      }
+    }
+  }
+  return {positions, dotW, dotH};
+}
+
+const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+const randInt = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+const choice = arr => arr[Math.floor(Math.random()*arr.length)];
+
+function makeTile(stage, spec){
+  const div = document.createElement('div');
+  div.className = 'tile';
+  div.style.left = spec.x + 'px';
+  div.style.top  = spec.y + 'px';
+  div.style.width  = spec.w + 'px';
+  div.style.height = spec.h + 'px';
+  div.style.background = choice(BG_COLORS);
+  // ↓ 字体稍微小一点（原来是 /2.2）
+  div.style.fontSize = Math.max(9, Math.floor(Math.min(spec.w,spec.h)/2.8)) + 'px';
+  div.textContent = SHOW_TIPS ? choice(TIPS) : '';
+  div.addEventListener('click', e => {
+    e.stopPropagation();
+    div.remove();
+  }, {passive:true});
+  stage.appendChild(div);
+  div.animate([{opacity:0,transform:'scale(0.9)'},{opacity:1,transform:'scale(1)'}], {duration:180, easing:'ease-out'});
+}
+
+function run(word="LEA"){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = '';
+  const sw = stage.clientWidth;
+  const sh = stage.clientHeight;
+  const mask = buildMask(word, 1);
+  const {positions} = collectPositions(mask, sw, sh);
+  const total = positions.length;
+
+  let i = 0;
+  (function spawn(){
+    if(i>=total) return;
+    const p = (i+1)/total;
+    const interval = Math.max(END_MS, Math.floor(START_MS*(1-p)*(1-p) + END_MS*p));
+    makeTile(stage, positions[i]);
+    i++;
+    setTimeout(spawn, interval);
+  })();
+}
+
+function closeAll(){
+  document.getElementById('stage').innerHTML = '';
+}
+
+window.addEventListener('load', () => {
+  run(WORD);
+  document.getElementById('closeAll').addEventListener('click', closeAll, {passive:true});
+  window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeAll(); });
+  let resizeTimer=null;
+  window.addEventListener('resize', ()=>{
+    clearTimeout(resizeTimer);
+    resizeTimer=setTimeout(()=>{ run(WORD); }, 250);
+  });
+});
+</script>
+</body>
+</html>
