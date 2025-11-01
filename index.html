@@ -62,9 +62,26 @@
 <body>
   <div id="stage"></div>
 
+  <!-- 背景音乐（循环，首次需用户点击触发） -->
+  <audio id="bgm" preload="metadata" loop>
+    <source src="lea.mp3" type="audio/mpeg">
+  </audio>
+
   <div class="toolbar">
     <button id="modeBtn" class="btn">模式：LEA</button>
     <button id="closeAll" class="btn">清屏</button>
+    <!-- 音乐按钮 + 面板 -->
+    <button id="musicBtn" class="btn">音乐：播放</button>
+    <div id="musicMenu" class="menu" aria-label="音乐菜单">
+      <div style="padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="color:#bbb;font-size:12px;width:36px">音量</span>
+          <input id="musicVol" type="range" min="0" max="1" step="0.01" value="0.6" style="width:120px">
+          <button id="muteBtn" class="btn" style="padding:6px 10px;font-size:12px;background:#333">静音</button>
+        </div>
+      </div>
+    </div>
+
     <div id="modeMenu" class="menu" aria-label="模式菜单">
       <button data-mode="LEA">LEA 字形 + 弹窗</button>
       <button data-mode="HEART_RAIN">心形雨</button>
@@ -155,7 +172,7 @@ function makeTile(stage, spec, text="", tag=null){
   };
   const onUp = (e)=>{
     if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; }
-    if(pressed){ // 如果没触发长按，就当点击爆裂
+    if(pressed){
       if(!div.classList.contains('secret')) clickBurst(e);
     }
     pressed=false;
@@ -288,7 +305,6 @@ function fadeOutAndRemove(elems, ms=LEA_FADE_MS){
 
 async function runLetters(word="LEA"){
   const stage = document.getElementById('stage');
-  // 清仅限 LEA 阶段已存在的点
   Array.from(stage.querySelectorAll('.tile[data-tag="phase1"]')).forEach(n=>n.remove());
 
   const sw = stage.clientWidth, sh = stage.clientHeight;
@@ -327,7 +343,6 @@ function runFill(){
     later(spawn, interval);
   })();
 
-  // 二次演出：等待大约 800ms 后，随机挑选 25% 抬升+旋转+淡出，然后换新配色/词条再铺一轮
   later(async ()=>{
     const cards = Array.from(stage.querySelectorAll('.tile[data-tag="phase2"]'));
     if(!cards.length) return;
@@ -345,7 +360,6 @@ function runFill(){
         };
       });
     });
-    // 切换新主题
     BG_COLORS = choice(PALETTES);
     TIPS = choice(TIPS_SETS);
     runFill();
@@ -416,7 +430,6 @@ function modeFireworks(){
   const fire = ()=>{
     const cx = randInt(80, st.clientWidth-80);
     const cy = randInt(80, Math.max(120, st.clientHeight*0.6));
-    // 上升光点
     const rocket = spawnParticle('particle', {left:cx+'px', top:(st.clientHeight+20)+'px', width:'2px', height:'12px', background:'#fff'}, [
       {transform:`translate(-50%, -${st.clientHeight - cy}px)`, opacity:1},
       {opacity:0}
@@ -437,13 +450,11 @@ function closeAll(){
 
 async function startLEAFlow(){
   closeAll();
-  // 重置主题
   BG_COLORS = PALETTES[0];
   TIPS = TIPS_SETS[0];
   await runLetters(WORD);
   runFill();
 
-  // 窗口尺寸变化时，重跑（只在 LEA 模式下）
   let resizeTimer=null;
   const onResize = ()=>{
     clearTimeout(resizeTimer);
@@ -455,7 +466,6 @@ async function startLEAFlow(){
     }, 250);
   };
   window.addEventListener('resize', onResize, {once:false});
-  // 清理监听在切模式时由 closeAllTimers + closeAll 实现（因为我们没保存引用，这里简单）
 }
 
 function setMode(m){
@@ -476,9 +486,7 @@ function setMode(m){
 /* ===================== 顶部菜单交互 ===================== */
 const modeBtn = document.getElementById('modeBtn');
 const modeMenu = document.getElementById('modeMenu');
-modeBtn.addEventListener('click', ()=>{
-  modeMenu.classList.toggle('open');
-});
+modeBtn.addEventListener('click', ()=>{ modeMenu.classList.toggle('open'); });
 modeMenu.addEventListener('click', (e)=>{
   const m = e.target.getAttribute('data-mode');
   if(!m) return;
@@ -490,12 +498,87 @@ document.addEventListener('click', (e)=>{
     modeMenu.classList.remove('open');
   }
 });
-
 document.getElementById('closeAll').addEventListener('click', closeAll, {passive:true});
 
-/* ===================== 启动 ===================== */
+/* ===================== 音乐控制（播放/暂停/音量/静音） ===================== */
+const bgm = document.getElementById('bgm');
+const musicBtn = document.getElementById('musicBtn');
+const musicMenu = document.getElementById('musicMenu');
+const volSlider = document.getElementById('musicVol');
+const muteBtn = document.getElementById('muteBtn');
+
+let audioUnlocked = false;
+// iOS/Safari 需“用户手势”解锁
+function unlockAudioOnce() {
+  if (audioUnlocked) return;
+  const p = bgm.play();
+  if (p && typeof p.then === 'function') {
+    p.then(() => { bgm.pause(); audioUnlocked = true; })
+     .catch(()=>{})
+     .finally(()=> document.removeEventListener('pointerdown', unlockAudioOnce, {capture:true}));
+  } else {
+    audioUnlocked = true;
+    document.removeEventListener('pointerdown', unlockAudioOnce, {capture:true});
+  }
+}
+document.addEventListener('pointerdown', unlockAudioOnce, { once:true, capture:true });
+
+// 读取/保存音量
+try {
+  const lastVol = localStorage.getItem('bgm.volume');
+  bgm.volume = lastVol !== null ? parseFloat(lastVol) : 0.6;
+  if (!isNaN(bgm.volume)) volSlider.value = String(bgm.volume);
+} catch (_) {}
+
+async function togglePlay() {
+  try {
+    if (bgm.paused) {
+      await bgm.play();
+      musicBtn.textContent = '音乐：暂停';
+    } else {
+      bgm.pause();
+      musicBtn.textContent = '音乐：播放';
+    }
+  } catch (err) {
+    alert('播放失败：请确认 lea.mp3 已上传且路径正确。');
+    console.error(err);
+  }
+}
+
+// 短按播放/暂停；长按只开音量菜单
+let pressTimer = null, pressed = false;
+musicBtn.addEventListener('pointerdown', () => {
+  pressed = true;
+  pressTimer = setTimeout(() => {
+    if (pressed) musicMenu.classList.toggle('open');
+  }, 400);
+});
+musicBtn.addEventListener('pointerup', async () => {
+  if (pressTimer) clearTimeout(pressTimer);
+  if (pressed && !musicMenu.classList.contains('open')) await togglePlay();
+  pressed = false;
+});
+
+// 点击空白处关闭音乐菜单
+document.addEventListener('click', (e) => {
+  if (!musicMenu.contains(e.target) && e.target !== musicBtn) musicMenu.classList.remove('open');
+});
+
+// 音量与静音
+volSlider.addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  bgm.volume = isNaN(v) ? 0.6 : v;
+  try { localStorage.setItem('bgm.volume', String(bgm.volume)); } catch (_) {}
+});
+muteBtn.addEventListener('click', () => {
+  bgm.muted = !bgm.muted;
+  muteBtn.textContent = bgm.muted ? '取消静音' : '静音';
+});
+
+// 启动
 window.addEventListener('load', ()=>{
-  setMode('LEA'); // 默认进 LEA 流程
+  setMode('LEA');
+  musicBtn.textContent = bgm.paused ? '音乐：播放' : '音乐：暂停';
 });
 </script>
 </body>
