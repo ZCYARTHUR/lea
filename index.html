@@ -15,7 +15,8 @@
   /* GPU 场景容器（默认隐藏，GPU 模式开启） */
   #gpuRoot{position:fixed; inset:0; display:none; background:#0b0c10}
   #gpuCanvas{position:absolute; inset:0; width:100%; height:100%; display:block}
-  #gpuDiag{position:fixed; left:10px; bottom:10px; color:#94a3b8; font:12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, PingFang SC, Helvetica, Arial; z-index:9; opacity:.9}
+  #gpuDiag{position:fixed; left:10px; bottom:10px; color:#94a3b8; font:12px/1.2 system-ui,-apple-system,Segoe UI,Roboto,PingFang SC,Helvetica,Arial; z-index:9; opacity:.9}
+  #maskPreview{position:fixed; left:10px; top:10px; width:220px; height:auto; z-index:9; display:none; border:1px solid rgba(255,255,255,.2)}
 
   /* 卡片（弹窗） */
   .tile{
@@ -82,6 +83,7 @@
 
   <!-- GPU 粒子字形场（Three.js 渲染到这个 Canvas） -->
   <div id="gpuRoot"><canvas id="gpuCanvas"></canvas></div>
+  <img id="maskPreview" alt="Mask Preview"/>
   <div id="gpuDiag" aria-hidden="true"></div>
 
   <!-- 音乐：自动播放 + 循环；playsinline 避免 iOS 全屏；preload 提前缓冲 -->
@@ -128,14 +130,8 @@
 
 <script type="module">
 /*************************************************
- *                导入 Three.js (ESM)
+ *              DOM 动画（你的原功能）            *
  *************************************************/
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-
-/*************************************************
- *                 你的原功能（DOM）
- *************************************************/
-/* ===================== 全局配置 ===================== */
 const WORD = "LEA";
 const START_MS = 200;
 const END_MS   = 20;
@@ -172,14 +168,12 @@ const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
 const randInt = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const choice = arr => arr[Math.floor(Math.random()*arr.length)];
 
-/* 计时器池，切模式时统一清理 */
 const timers = new Set();
 const intervals = new Set();
 function later(fn,ms){ const id=setTimeout(()=>{timers.delete(id); fn();},ms); timers.add(id); return id; }
 function every(fn,ms){ const id=setInterval(fn,ms); intervals.add(id); return id; }
 function clearAllTimers(){ for(const t of timers) clearTimeout(t); timers.clear(); for(const i of intervals) clearInterval(i); intervals.clear(); }
 
-/* ===================== 工具：建卡片/粒子 ===================== */
 function makeTile(stage, spec, text="", tag=null){
   const div = document.createElement('div');
   div.className = 'tile';
@@ -192,7 +186,6 @@ function makeTile(stage, spec, text="", tag=null){
   div.style.fontSize = Math.max(10, Math.floor(Math.min(spec.w,spec.h)/2.9)) + 'px';
   div.textContent = text;
 
-  // 点击彩蛋：心/纸屑
   const clickBurst = (e) => {
     const rect = div.getBoundingClientRect();
     const cx = rect.left + rect.width/2 + window.scrollX;
@@ -200,7 +193,6 @@ function makeTile(stage, spec, text="", tag=null){
     Math.random() < 0.5 ? burstHearts(cx, cy) : burstConfetti(cx, cy);
   };
 
-  // 长按彩蛋：隐藏祝福
   let pressTimer=null, pressed=false;
   const onDown = (e)=>{
     pressed = true;
@@ -237,7 +229,6 @@ function spawnParticle(cls, styles, keyframes, options){
   anim.onfinish = ()=>p.remove();
   return p;
 }
-
 function burstHearts(x,y,count=10){
   for(let i=0;i<count;i++){
     const ang = Math.random()*Math.PI*2;
@@ -248,10 +239,9 @@ function burstHearts(x,y,count=10){
       {transform:'translate(-50%,-50%) scale(0.8)', opacity:0.0},
       {transform:`translate(${tx-x-50}%, ${ty-y-50}%) scale(1.2)`, opacity:1, offset:.6},
       {transform:`translate(${tx-x-50}%, ${ty-y-70}%) scale(0.9)`, opacity:0}
-    ], {duration:600+Math.random()*400, easing:'ease-out', fill:'forwards'}).textContent='❤';
+    ], {duration:600+Math.random()*400, easing:'ease-out'}).textContent='❤';
   }
 }
-
 function burstConfetti(x,y,count=14){
   for(let i=0;i<count;i++){
     const col = choice(['#f94144','#f3722c','#f9c74f','#90be6d','#577590','#f72585','#4cc9f0']);
@@ -261,11 +251,10 @@ function burstConfetti(x,y,count=14){
     spawnParticle('confetti', {left:(x-4)+'px', top:(y-6)+'px', background:col}, [
       {transform:'translate(0,0) rotate(0)', opacity:1},
       {transform:`translate(${rx}px, ${40+ry}px) rotate(${rot})`, opacity:0}
-    ], {duration:700+Math.random()*500, easing:'cubic-bezier(.2,.8,.2,1)', fill:'forwards'});
+    ], {duration:700+Math.random()*500, easing:'cubic-bezier(.2,.8,.2,1)'});
   }
 }
 
-/* ===================== LEA 阶段 + 满屏弹窗 + 二次演出 ===================== */
 function buildMask(text, spaceCols=1){
   const rows = 7;
   const maskRows = Array(rows).fill("");
@@ -279,22 +268,17 @@ function buildMask(text, spaceCols=1){
   });
   return maskRows;
 }
-
 function collectLetterPositions(maskRows, sw, sh){
   const rows = maskRows.length;
   const cols = maskRows.reduce((m,row)=>Math.max(m,row.length),0);
   if(!cols) return {positions:[]};
-
   const totalWTarget = Math.floor(sw * COVER_RATIO);
   const pitchX = Math.max(12, Math.floor(totalWTarget / cols));
   const pitchY = Math.max(12, pitchX);
-
   const dotW = Math.max(10, pitchX - CELL_GAP);
   const dotH = Math.max(10, pitchY - CELL_GAP);
-
   const totalW = cols * pitchX;
   const totalH = rows * pitchY;
-
   const x0 = Math.floor((sw - totalW)/2);
   const y0 = Math.floor((sh - totalH)/3);
 
@@ -316,7 +300,6 @@ function collectLetterPositions(maskRows, sw, sh){
   }
   return {positions};
 }
-
 function collectRandomPositions(sw, sh){
   const n_windows = Math.floor((sw * sh) / (WIN_W * WIN_H) * 1.5);
   const positions = [];
@@ -331,7 +314,6 @@ function collectRandomPositions(sw, sh){
   }
   return positions.sort(()=>Math.random()-0.5);
 }
-
 function fadeOutAndRemove(elems, ms=LEA_FADE_MS){
   return new Promise(resolve=>{
     if(!elems || elems.length===0){ resolve(); return; }
@@ -344,11 +326,9 @@ function fadeOutAndRemove(elems, ms=LEA_FADE_MS){
     }
   });
 }
-
 async function runLetters(word="LEA"){
   const stage = document.getElementById('stage');
   Array.from(stage.querySelectorAll('.tile[data-tag="phase1"]')).forEach(n=>n.remove());
-
   const sw = stage.clientWidth, sh = stage.clientHeight;
   const mask = buildMask(word, 1);
   const {positions} = collectLetterPositions(mask, sw, sh);
@@ -366,10 +346,8 @@ async function runLetters(word="LEA"){
       later(spawn, interval);
     })();
   });
-
   await fadeOutAndRemove(created, LEA_FADE_MS);
 }
-
 function runFill(){
   const stage = document.getElementById('stage');
   const sw = stage.clientWidth, sh = stage.clientHeight;
@@ -408,8 +386,6 @@ function runFill(){
     runFill();
   }, 800);
 }
-
-/* ===================== 模式：心形雨/烟花/雪花/气球/Confetti ===================== */
 function modeHeartRain(){
   const st = document.getElementById('stage');
   const spawn = ()=> {
@@ -419,12 +395,11 @@ function modeHeartRain(){
     const p = spawnParticle('heart', {left:x+'px', top:y+'px', color:choice(['#ff4d6d','#ff8fa3','#f06595','#e03131'])}, [
       {transform:'translate(-50%,-50%) scale(0.8)', opacity:0},
       {transform:`translate(-50%, ${st.clientHeight+40}px) scale(1.1)`, opacity:1}
-    ], {duration:dur, easing:'linear', fill:'forwards'});
+    ], {duration:dur, easing:'linear'});
     p.textContent='❤';
   };
   every(spawn, 120);
 }
-
 function modeSnow(){
   const st = document.getElementById('stage');
   const spawn = ()=> {
@@ -434,11 +409,10 @@ function modeSnow(){
     spawnParticle('snow', {left:x+'px', top:'-10px', width:size+'px', height:size+'px', opacity:.9}, [
       {transform:`translateY(${st.clientHeight+20}px)` , opacity:.95},
       {opacity:0}
-    ], {duration:dur, easing:'linear', fill:'forwards'});
+    ], {duration:dur, easing:'linear'});
   };
   every(spawn, 80);
 }
-
 function modeBalloons(){
   const st = document.getElementById('stage');
   const spawn = ()=> {
@@ -448,11 +422,10 @@ function modeBalloons(){
     spawnParticle('balloon', {left:x+'px', bottom:'-30px', background:clr}, [
       {transform:'translate(-50%, 0)'},
       {transform:`translate(-50%, -${st.clientHeight+60}px)`, opacity:.2}
-    ], {duration:dur, easing:'cubic-bezier(.25,.8,.2,1)', fill:'forwards'});
+    ], {duration:dur, easing:'cubic-bezier(.25,.8,.2,1)'});
   };
   every(spawn, 280);
 }
-
 function modeConfetti(){
   const st = document.getElementById('stage');
   const spawn = ()=> {
@@ -463,71 +436,55 @@ function modeConfetti(){
     spawnParticle('confetti', {left:x+'px', top:y+'px', background:choice(['#f94144','#f3722c','#f9c74f','#90be6d','#577590','#f72585','#4cc9f0'])}, [
       {transform:'translateY(0) rotate(0)', opacity:1},
       {transform:`translateY(${st.clientHeight+20}px) rotate(${rot})`, opacity:.9}
-    ], {duration:dur, easing:'linear', fill:'forwards'});
+    ], {duration:dur, easing:'linear'});
   };
   every(spawn, 40);
 }
 
-function modeFireworks(){
-  const st = document.getElementById('stage');
-  const fire = ()=>{
-    const cx = randInt(80, st.clientWidth-80);
-    const cy = randInt(80, Math.max(120, st.clientHeight*0.6));
-    spawnParticle('particle', {left:cx+'px', top:(st.clientHeight+20)+'px', width:'2px', height:'12px', background:'#fff'}, [
-      {transform:`translate(-50%, -${st.clientHeight - cy}px)`, opacity:1},
-      {opacity:0}
-    ], {duration:700, easing:'cubic-bezier(.3,.9,.2,1)', fill:'forwards'});
-    later(()=>burstConfetti(cx, cy, 24), 680);
-  };
-  every(fire, 900);
-}
-
-/* ===================== 模式切换与控制（+ GPU 集成） ===================== */
+/************ 模式切换（含 GPU 集成） ************/
 let CURRENT_MODE = 'LEA';
 const gpuRoot = document.getElementById('gpuRoot');
 const gpuTextBtn = document.getElementById('gpuTextBtn');
+const gpuDiag = document.getElementById('gpuDiag');
+const maskPreviewImg = document.getElementById('maskPreview');
 
 function showGPU(show){
   gpuRoot.style.display = show ? 'block' : 'none';
   document.getElementById('stage').style.visibility = show ? 'hidden' : 'visible';
   gpuTextBtn.style.display = show ? 'inline-block' : 'none';
 }
-
 async function startLEAFlow(){
-  clearAllTimers();
+  closeAll();
   showGPU(false);
   BG_COLORS = PALETTES[0];
   TIPS = TIPS_SETS[0];
   await runLetters(WORD);
   runFill();
-
   let resizeTimer=null;
   const onResize = ()=>{
     clearTimeout(resizeTimer);
     resizeTimer = later(async ()=>{
       if(CURRENT_MODE!=='LEA') return;
-      clearAllTimers();
-      const stage = document.getElementById('stage');
-      stage.innerHTML = '';
+      closeAll();
       await runLetters(WORD);
       runFill();
     }, 250);
   };
   window.addEventListener('resize', onResize, {once:false});
 }
-
+function closeAll(){
+  clearAllTimers();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = '';
+}
 function setMode(m){
   CURRENT_MODE = m;
   document.getElementById('modeBtn').textContent = '模式：' + ({
     'LEA':'LEA','HEART_RAIN':'心形雨','FIREWORKS':'烟花','SNOW':'雪花','BALLOONS':'气球上浮','CONFETTI':'Confetti','GPU':'GPU 字形粒子'
   }[m] || m);
 
-  // 先停 GPU（若在运行）
-  window.GPUGlyph?.stop?.();
-
-  clearAllTimers();
-  const stage = document.getElementById('stage');
-  stage.innerHTML = '';
+  if(window.GPUGlyph && window.GPUGlyph.stop){ window.GPUGlyph.stop(); }
+  closeAll();
 
   if(m==='LEA'){ startLEAFlow(); return; }
   if(m==='HEART_RAIN'){ showGPU(false); modeHeartRain(); return; }
@@ -537,12 +494,12 @@ function setMode(m){
   if(m==='CONFETTI'){ showGPU(false); modeConfetti(); return; }
   if(m==='GPU'){
     showGPU(true);
-    window.GPUGlyph.start({ text: WORD });
+    window.GPUGlyph?.start({ text: WORD });
     return;
   }
 }
 
-/* ===================== 顶部菜单交互 ===================== */
+/************ 顶部菜单交互 ************/
 const modeBtn = document.getElementById('modeBtn');
 const modeMenu = document.getElementById('modeMenu');
 modeBtn.addEventListener('click', ()=>{ modeMenu.classList.toggle('open'); modeBtn.setAttribute('aria-expanded', modeMenu.classList.contains('open')?'true':'false'); });
@@ -558,10 +515,10 @@ document.addEventListener('click', (e)=>{
   }
 });
 document.getElementById('closeAll').addEventListener('click', ()=>{
-  if(CURRENT_MODE==='GPU'){ window.GPUGlyph?.resetParticles?.(); } else { clearAllTimers(); document.getElementById('stage').innerHTML=''; }
+  if(CURRENT_MODE==='GPU'){ window.GPUGlyph?.resetParticles?.(); } else { closeAll(); }
 }, {passive:true});
 
-/* ===================== 音乐控制（自动播放 + 兜底解锁 + 菜单） ===================== */
+/************ 音乐控制 ************/
 const bgm = document.getElementById('bgm');
 const musicBtn = document.getElementById('musicBtn');
 const musicMenu = document.getElementById('musicMenu');
@@ -569,14 +526,11 @@ const volSlider = document.getElementById('musicVol');
 const muteBtn = document.getElementById('muteBtn');
 const unlockMask = document.getElementById('unlockMask');
 
-// 初始化音量
 try {
   const lastVol = localStorage.getItem('bgm.volume');
   bgm.volume = lastVol !== null ? Math.min(1, Math.max(0, parseFloat(lastVol))) : 0.6;
   volSlider.value = String(bgm.volume);
 } catch (_) { bgm.volume = 0.6; }
-
-// 自动播放尝试
 async function autoStartBgm(){
   try{
     bgm.muted = false;
@@ -606,7 +560,6 @@ async function togglePlay() {
     console.error(err);
   }
 }
-// 短按播放/暂停；长按只开音量菜单
 let pressTimer = null, pressed = false;
 musicBtn.addEventListener('pointerdown', () => {
   pressed = true;
@@ -617,11 +570,9 @@ musicBtn.addEventListener('pointerup', async () => {
   if (pressed && !musicMenu.classList.contains('open')) await togglePlay();
   pressed = false;
 });
-// 点击空白处关闭音乐菜单
 document.addEventListener('click', (e) => {
   if (!musicMenu.contains(e.target) && e.target !== musicBtn) musicMenu.classList.remove('open');
 });
-// 音量与静音
 volSlider.addEventListener('input', (e) => {
   const v = parseFloat(e.target.value);
   bgm.volume = isNaN(v) ? 0.6 : v;
@@ -633,77 +584,55 @@ muteBtn.addEventListener('click', () => {
 });
 
 /*************************************************
- *                GPU 粒子字形场（GPGPU）
+ *        GPU 粒子字形场（WebGL2 + GPGPU）        *
  *************************************************/
-window.GPUGlyph = (()=>{
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
-  const PARAMS = {
-    COUNT: 40000,
-    BASE_SIZE: 0.012,
-    DAMPING: 0.92,
-    DRIVE: 0.28,
-    EDGE_THR: 0.5,
-    NOISE: 0.004,
-    ENERGY_SCALE: 1.7,
-    MASK_W: 1024,
-    MASK_H: 512,
-    PALETTE: ['#ffd3e0','#bde0fe','#c7f9cc','#e9e5ff','#fff6b3','#ffcfb3']
-  };
-
-  // DOM
+window.GPUGlyph = (function(){
+  let renderer, scene, camera, rafId = 0;
+  let compScene, compCam, compMat, quadMesh;
+  let renderMat, instMesh;
+  let readRT, writeRT, stateTex=null;
+  let maskCanvas, mctx, maskTex, MASK_W=1024, MASK_H=512;
+  let texSide, COUNT=40000;
+  let analyser=null, audioData=null;
+  let aspect = 1;
+  let palette = ['#ffd3e0','#bde0fe','#c7f9cc','#e9e5ff','#fff6b3','#ffcfb3'];
   const canvas = document.getElementById('gpuCanvas');
-  const diag = document.getElementById('gpuDiag');
 
-  // Three 基础
-  let renderer, scene, camera;
-  let compScene, compCam, compMat, compQuad;
-  let renderMat, inst;
-  let maskCanvas, mctx, maskTex;
-  let texSide, rtA, rtB, readRT, writeRT, stateTex;
-  let rafId = 0;
-  let started = false;
+  function diag(txt){ gpuDiag.textContent = txt; }
 
-  // 音频能量（与页面同一 audio）
-  const audio = document.getElementById('bgm');
-  let ac, analyser, aData;
-
-  function log(msg){ diag.textContent = msg || ''; }
-
-  function checkCaps(gl){
-    if(!renderer.capabilities.isWebGL2){
-      log('需要 WebGL2（此设备仅支持 WebGL1）');
-      return false;
+  function checkCaps(){
+    const gl = renderer.getContext();
+    const wgl2 = renderer.capabilities.isWebGL2;
+    const extFloatRT = gl.getExtension('EXT_color_buffer_float');
+    const extTexFloat = gl.getExtension('OES_texture_float');
+    diag(`WebGL2: ${wgl2} · EXT_color_buffer_float: ${!!extFloatRT} · OES_texture_float: ${!!extTexFloat}`);
+    if(!wgl2 || !extFloatRT){
+      alert('需要 WebGL2 且支持 EXT_color_buffer_float 扩展。若仍黑屏，请换新版 Chrome/Edge/Firefox 或桌面浏览器。');
     }
-    const ok32 = gl.getExtension('EXT_color_buffer_float');
-    const ok16 = gl.getExtension('EXT_color_buffer_half_float');
-    if(!ok32 && !ok16){
-      log('需要 EXT_color_buffer_float 或 half_float 扩展');
-      return false;
-    }
-    return true;
   }
 
-  function makeRT(gl){
-    // 优先 32F，否则 16F
-    const has32 = !!gl.getExtension('EXT_color_buffer_float');
-    const type = has32 ? THREE.FloatType : THREE.HalfFloatType;
+  function makeRT(){
     return new THREE.WebGLRenderTarget(texSide, texSide, {
-      type, format: THREE.RGBAFormat,
+      type: THREE.FloatType,
+      format: THREE.RGBAFormat,
       minFilter: THREE.NearestFilter,
       magFilter: THREE.NearestFilter,
-      depthBuffer: false, stencilBuffer: false
+      depthBuffer: false,
+      stencilBuffer: false
     });
   }
 
   function seedState(){
     const arr = new Float32Array(texSide*texSide*4);
-    const aspect = renderer.domElement.width / renderer.domElement.height;
-    for(let i=0;i<PARAMS.COUNT;i++){
+    const ar = aspect;
+    for(let i=0;i<COUNT;i++){
       const k=i*4;
-      arr[k]   = (Math.random()*2-1) * aspect * 0.95; // x
-      arr[k+1] = (Math.random()*2-1) * 0.95;          // y
-      arr[k+2] = (Math.random()*2-1) * 0.02;          // vx
-      arr[k+3] = (Math.random()*2-1) * 0.02;          // vy
+      arr[k]   = (Math.random()*2-1) * ar * 0.95; // x
+      arr[k+1] = (Math.random()*2-1) * 0.95;      // y
+      arr[k+2] = (Math.random()*2-1) * 0.02;      // vx
+      arr[k+3] = (Math.random()*2-1) * 0.02;      // vy
     }
     const tex = new THREE.DataTexture(arr, texSide, texSide, THREE.RGBAFormat, THREE.FloatType);
     tex.needsUpdate = true;
@@ -712,16 +641,13 @@ window.GPUGlyph = (()=>{
 
   function buildMaskCanvas(){
     maskCanvas = document.createElement('canvas');
-    maskCanvas.width = PARAMS.MASK_W;
-    maskCanvas.height = PARAMS.MASK_H;
+    maskCanvas.width = MASK_W; maskCanvas.height = MASK_H;
     mctx = maskCanvas.getContext('2d');
     maskTex = new THREE.CanvasTexture(maskCanvas);
-    maskTex.minFilter = THREE.LinearFilter;
-    maskTex.magFilter = THREE.LinearFilter;
+    maskTex.minFilter = THREE.LinearFilter; maskTex.magFilter = THREE.LinearFilter;
   }
-
   function drawTextMask(text){
-    const W = maskCanvas.width, H = maskCanvas.height;
+    const W = MASK_W, H = MASK_H;
     mctx.clearRect(0,0,W,H);
     mctx.fillStyle = '#fff';
     let fontSize = Math.floor(H*0.72);
@@ -736,36 +662,43 @@ window.GPUGlyph = (()=>{
     const x=W/2, y=H/2 + (metrics.actualBoundingBoxDescent - metrics.actualBoundingBoxAscent)/2;
     mctx.fillText(text, x, y);
     maskTex.needsUpdate = true;
+
+    // 更新预览图
+    if(maskPreviewImg.style.display==='block'){
+      maskPreviewImg.src = maskCanvas.toDataURL();
+    }
   }
 
-  function buildCompute(gl){
+  function buildComputePass(){
+    compScene = new THREE.Scene();
+    compCam = new THREE.OrthographicCamera(-1,1,1,-1,-1,1);
     const quadGeom = new THREE.PlaneGeometry(2,2);
     compMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: {
+      uniforms:{
         prevTex:   { value: stateTex },
         maskTex:   { value: maskTex },
         uTexSize:  { value: new THREE.Vector2(texSide, texSide) },
-        uMaskSize: { value: new THREE.Vector2(PARAMS.MASK_W, PARAMS.MASK_H) },
-        uAspect:   { value: innerWidth/innerHeight },
+        uMaskSize: { value: new THREE.Vector2(MASK_W, MASK_H) },
+        uAspect:   { value: aspect },
         uDt:       { value: 0.016 },
         uTime:     { value: 0 },
-        uDrive:    { value: PARAMS.DRIVE },
-        uDamping:  { value: PARAMS.DAMPING },
-        uNoise:    { value: PARAMS.NOISE },
-        uEdgeThr:  { value: PARAMS.EDGE_THR },
+        uDrive:    { value: 0.28 },
+        uDamping:  { value: 0.92 },
+        uNoise:    { value: 0.004 },
+        uEdgeThr:  { value: 0.5 },
         uEnergy:   { value: 0.0 }
       },
-      // 注意：不要重复声明 in vec3 position; Three 会注入
+      // 注意：不要重复声明 position，直接用即可，避免 redefinition
       vertexShader: `
         out vec2 vUv;
         void main(){
-          vUv = position.xy*0.5 + 0.5;
+          vUv = position.xy*0.5+0.5;
           gl_Position = vec4(position,1.0);
         }
       `,
       fragmentShader: `
-        precision highp float; precision highp int; precision highp sampler2D;
+        precision highp float; precision highp sampler2D;
         in vec2 vUv; out vec4 outColor;
         uniform sampler2D prevTex;   // (x,y,vx,vy)
         uniform sampler2D maskTex;   // 文本 alpha
@@ -780,7 +713,6 @@ window.GPUGlyph = (()=>{
           float v = 1.0 - (pos.y + 1.0) * 0.5;
           return vec2(u, v);
         }
-
         vec3 sampleAlphaGrad(vec2 pos){
           vec2 uv = worldToMask(pos);
           vec2 dp = 1.0 / uMaskSize;
@@ -789,7 +721,6 @@ window.GPUGlyph = (()=>{
           float ay = texture(maskTex, uv + vec2(0.0,dp.y)).a - texture(maskTex, uv - vec2(0.0,dp.y)).a;
           return vec3(a, ax*0.5, ay*0.5);
         }
-
         void main(){
           vec4 s = texture(prevTex, vUv);
           vec2 pos = s.xy; vec2 vel = s.zw;
@@ -814,30 +745,28 @@ window.GPUGlyph = (()=>{
         }
       `
     });
-    compScene = new THREE.Scene();
-    compQuad = new THREE.Mesh(quadGeom, compMat);
-    compScene.add(compQuad);
-    compCam = new THREE.OrthographicCamera(-1,1,1,-1, -1, 1);
+    quadMesh = new THREE.Mesh(quadGeom, compMat);
+    compScene.add(quadMesh);
   }
 
-  function buildRender(){
+  function buildRenderPass(){
     const quad = new THREE.PlaneGeometry(1,1);
+    const cols = palette.map(c=> new THREE.Color(c));
     renderMat = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: {
+      uniforms:{
         posTex:   { value: readRT.texture },
         uTexSize: { value: new THREE.Vector2(texSide, texSide) },
-        uAspect:  { value: innerWidth/innerHeight },
-        uSize:    { value: PARAMS.BASE_SIZE },
+        uAspect:  { value: aspect },
+        uSize:    { value: 0.012 },
         uEnergy:  { value: 0.0 },
-        uPalette: { value: PARAMS.PALETTE.map(c=> new THREE.Color(c)) }
+        uPalette: { value: cols }
       },
       vertexShader: `
-        precision highp float; precision highp int; precision highp sampler2D;
+        precision highp float; precision highp sampler2D;
         uniform sampler2D posTex; uniform vec2 uTexSize; uniform float uAspect; uniform float uSize; uniform float uEnergy;
-        // Three 会注入 attribute vec3 position; 这里不要重复声明
-        flat out int vColIndex;
-        out vec2 vCenter;
+        in vec3 position;
+        flat out int vIndex;
         void main(){
           int tw = int(uTexSize.x);
           int i = gl_InstanceID;
@@ -847,59 +776,37 @@ window.GPUGlyph = (()=>{
           vec2 pos = s.xy;
           float size = uSize * (1.0 + uEnergy*0.6);
           vec2 p = pos + position.xy * size;
-
-          vColIndex = i % 6;
-          vCenter = position.xy;
-
           gl_Position = vec4(p.x / uAspect, p.y, 0.0, 1.0);
+          vIndex = i % 6; // 颜色索引传给片段
         }
       `,
       fragmentShader: `
-        precision highp float; precision highp int;
-        uniform vec3 uPalette[6]; uniform float uEnergy;
-        flat in int vColIndex;
-        in vec2 vCenter;
+        precision highp float;
+        uniform vec3 uPalette[6];
+        flat in int vIndex;
         out vec4 outColor;
         void main(){
-          // 根据几何中心生成一个软边圆点 alpha
-          float d = length(vCenter);
-          float alpha = smoothstep(0.6, 0.5, d);
-          vec3 col = uPalette[vColIndex];
-          outColor = vec4(col, alpha * (0.85 + 0.15*uEnergy));
+          vec3 col = uPalette[vIndex];
+          outColor = vec4(col, 0.96);
         }
       `,
-      transparent: true
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
     });
-    inst = new THREE.InstancedMesh(quad, renderMat, PARAMS.COUNT);
-    inst.frustumCulled = false;
-    scene.add(inst);
+    instMesh = new THREE.InstancedMesh(quad, renderMat, COUNT);
+    instMesh.frustumCulled = false;
+    scene.add(instMesh);
   }
 
-  async function initAudio(){
-    try{
-      if(ac) return;
-      ac = new (window.AudioContext||window.webkitAudioContext)();
-      const src = ac.createMediaElementSource(audio);
-      analyser = ac.createAnalyser();
-      analyser.fftSize = 256;
-      aData = new Uint8Array(analyser.frequencyBinCount);
-      src.connect(analyser).connect(ac.destination);
-    }catch(e){ /* 忽略无音频权限 */ }
-  }
-  function energy(){
-    if(!analyser) return 0;
-    analyser.getByteFrequencyData(aData);
-    let s=0; for(const v of aData) s+=v;
-    return s/(aData.length*255);
-  }
-
-  function computeStep(dt, E){
+  function computeStep(dt, energy){
     compMat.uniforms.uDt.value = dt;
     compMat.uniforms.uTime.value += dt;
-    compMat.uniforms.uEnergy.value = E;
-    compMat.uniforms.uAspect.value = innerWidth/innerHeight;
-
+    compMat.uniforms.uEnergy.value = energy;
+    compMat.uniforms.uAspect.value = aspect;
     compMat.uniforms.prevTex.value = stateTex ? stateTex : readRT.texture;
+
     renderer.setRenderTarget(writeRT);
     renderer.render(compScene, compCam);
     renderer.setRenderTarget(null);
@@ -908,111 +815,134 @@ window.GPUGlyph = (()=>{
     const tmp = readRT; readRT = writeRT; writeRT = tmp;
   }
 
-  function loop(){
-    let last = performance.now();
-    const tick = async (now)=>{
-      const dt = Math.min(0.04, (now-last)/1000); last=now;
-      const E = energy() * PARAMS.ENERGY_SCALE;
-
-      computeStep(dt, E);
-      renderMat.uniforms.posTex.value = readRT.texture;
-      renderMat.uniforms.uEnergy.value = E;
-
-      renderer.render(scene, camera);
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
+  function getEnergy(){
+    if(!analyser) return 0;
+    analyser.getByteFrequencyData(audioData);
+    let s=0; for(const v of audioData) s+=v;
+    return Math.min(1.0, s / (audioData.length*255));
   }
 
   function onResize(){
-    renderer.setSize(innerWidth, innerHeight, false);
-    renderMat.uniforms.uAspect.value = innerWidth/innerHeight;
-    compMat.uniforms.uAspect.value = innerWidth/innerHeight;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    renderer.setSize(w, h, false);
+    aspect = w/h;
+    if(compMat){ compMat.uniforms.uAspect.value = aspect; }
+    if(renderMat){ renderMat.uniforms.uAspect.value = aspect; }
   }
 
-  function start({text="LEA"}={}){
-    if(started) return;
-    started = true;
-    log('');
-
-    renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, canvas });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.setSize(innerWidth, innerHeight, false);
-    const gl = renderer.getContext();
-
-    if(!checkCaps(gl)){ return; }
-
-    scene = new THREE.Scene();
-    camera = new THREE.OrthographicCamera(-1,1,1,-1, -10, 10);
-
-    buildMaskCanvas();
-    drawTextMask(text);
-
-    texSide = Math.ceil(Math.sqrt(PARAMS.COUNT));
-    stateTex = seedState();
-    rtA = makeRT(gl);
-    rtB = makeRT(gl);
-    readRT = rtA; writeRT = rtB;
-
-    buildCompute(gl);
-    buildRender();
-    loop();
-    addEventListener('resize', onResize);
-
-    initAudio();
-    document.getElementById('gpuTextBtn').onclick = ()=>{
-      const val = prompt('输入要显示的文本（最长 24 个字符）：', text) || text;
-      const s = (val || 'LEA').slice(0,24).toUpperCase();
-      drawTextMask(s);
-      document.getElementById('gpuTextBtn').textContent = '字：' + s;
-    };
-
-    // 简易 PWA 缓存（可离线）
-    if('serviceWorker' in navigator){
-      const swCode = `self.addEventListener('install',e=>{e.waitUntil(caches.open('lea-gpgpu-v1').then(c=>c.addAll(['./','./lea.mp3'])))});self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`;
-      const blob = new Blob([swCode], {type:'text/javascript'});
-      const swUrl = URL.createObjectURL(blob);
-      navigator.serviceWorker.register(swUrl).catch(()=>{});
+  function toggleMaskPreview(){
+    if(maskPreviewImg.style.display==='block'){
+      maskPreviewImg.style.display='none';
+    }else{
+      maskPreviewImg.src = maskCanvas.toDataURL();
+      maskPreviewImg.style.display='block';
     }
   }
 
+  async function start(opts){
+    const text = (opts?.text || 'LEA').toUpperCase();
+    gpuTextBtn.textContent = '字：' + text;
+
+    if(!renderer){
+      renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        antialias:true,
+        alpha:false,
+        powerPreference: 'high-performance'
+      });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setSize(gpuRoot.clientWidth, gpuRoot.clientHeight, false);
+      renderer.setClearColor(0x0b0c10, 1);
+
+      scene = new THREE.Scene();
+      camera = new THREE.OrthographicCamera(-1,1,1,-1,-10,10);
+
+      // 音频能量（可选）
+      try{
+        const ctx = new (window.AudioContext||window.webkitAudioContext)();
+        const src = ctx.createMediaElementSource(bgm);
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        audioData = new Uint8Array(analyser.frequencyBinCount);
+        src.connect(analyser).connect(ctx.destination);
+      }catch(e){ /* 忽略音频失败 */ }
+
+      checkCaps();
+    }
+
+    aspect = gpuRoot.clientWidth / gpuRoot.clientHeight;
+
+    // 分配 GPGPU 纹理
+    COUNT = Math.max(10000, COUNT|0);
+    texSide = Math.ceil(Math.sqrt(COUNT));
+    readRT = makeRT();
+    writeRT = makeRT();
+    stateTex = seedState();
+
+    // 文本遮罩
+    buildMaskCanvas();
+    drawTextMask(text);
+
+    // Pass
+    buildComputePass();
+    buildRenderPass();
+    onResize();
+    window.addEventListener('resize', onResize);
+
+    // 文本修改
+    gpuTextBtn.onclick = ()=>{
+      const val = prompt('输入要显示的文本（不超过24字符）', text) || text;
+      drawTextMask(val.toUpperCase());
+      gpuTextBtn.textContent = '字：' + val.toUpperCase();
+    };
+
+    // Debug: M 键开关遮罩预览
+    window.addEventListener('keydown', (e)=>{ if(e.key==='m' || e.key==='M'){ toggleMaskPreview(); } });
+
+    // 主循环
+    let last = performance.now();
+    function loop(now){
+      rafId = requestAnimationFrame(loop);
+      const dt = Math.min(0.04, (now-last)/1000); last = now;
+      const E = getEnergy() * 1.7;
+      computeStep(dt, E);
+      renderMat.uniforms.posTex.value = readRT.texture;
+      renderMat.uniforms.uEnergy.value = E;
+      renderer.render(scene, camera);
+    }
+    rafId = requestAnimationFrame(loop);
+  }
+
   function stop(){
-    if(!started) return;
     cancelAnimationFrame(rafId);
     rafId = 0;
-
-    try{
-      inst?.geometry?.dispose?.();
-      renderMat?.dispose?.();
-      compQuad?.geometry?.dispose?.();
-      compMat?.dispose?.();
-      rtA?.dispose?.(); rtB?.dispose?.();
-      stateTex?.dispose?.();
-      maskTex?.dispose?.();
-      renderer?.dispose?.();
-    }catch(_){}
-    scene = camera = compScene = compCam = compMat = compQuad = renderMat = inst = null;
-    rtA = rtB = readRT = writeRT = stateTex = null;
-    started = false;
-    log('');
+    window.removeEventListener('resize', onResize);
+    if(instMesh){ scene.remove(instMesh); instMesh.geometry.dispose(); instMesh.material.dispose(); instMesh = null; }
+    if(compScene && quadMesh){ compScene.remove(quadMesh); quadMesh.geometry.dispose(); quadMesh.material.dispose(); quadMesh = null; }
+    if(readRT){ readRT.dispose(); readRT = null; }
+    if(writeRT){ writeRT.dispose(); writeRT = null; }
+    stateTex = null;
+    gpuTextBtn.onclick = null;
+    maskPreviewImg.style.display='none';
   }
 
   function resetParticles(){
-    if(!started) return;
     stateTex = seedState();
   }
 
-  return { start, stop, resetParticles, drawTextMask };
+  function setText(t){
+    drawTextMask(String(t||'LEA').toUpperCase());
+    gpuTextBtn.textContent = '字：' + String(t||'LEA').toUpperCase();
+  }
+
+  return { start, stop, resetParticles, setText };
 })();
 
-/*************************************************
- *                 页面启动
- *************************************************/
+/************ 页面启动 ************/
 window.addEventListener('load', ()=>{
-  // 默认进入 DOM 的 LEA 流程
   setMode('LEA');
-  // 音乐自动播放尝试
-  document.getElementById('musicBtn').textContent = bgm.paused ? '音乐：播放' : '音乐：暂停';
+  musicBtn.textContent = bgm.paused ? '音乐：播放' : '音乐：暂停';
   autoStartBgm();
 });
 </script>
