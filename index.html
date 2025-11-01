@@ -3,54 +3,105 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>LEA 动画</title>
+<title>LEA 动画 · 多模式</title>
 <style>
+  :root{
+    --btn-bg:#000; --btn-fg:#fff;
+    --menu-bg:rgba(0,0,0,.85); --menu-fg:#fff;
+  }
   html,body{height:100%;margin:0;padding:0;overflow:hidden;background:#fff;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-  #stage{position:relative;width:100vw;height:100vh}
+  #stage{position:relative;width:100vw;height:100vh;overflow:hidden}
+
+  /* 卡片（弹窗） */
   .tile{
     position:absolute; display:flex; align-items:center; justify-content:center;
-    border-radius:8px; padding:0 4px; box-sizing:border-box;
+    border-radius:10px; padding:0 6px; box-sizing:border-box;
     font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Arial,Helvetica,sans-serif;
     line-height:1.1; text-align:center; word-break:break-word;
+    box-shadow:0 2px 8px rgba(0,0,0,.12);
+    will-change:transform,opacity;
+    cursor:pointer;
   }
+
+  /* 右上角按钮与菜单 */
+  .toolbar{position:fixed; right:12px; top:12px; z-index:9999; display:flex; gap:8px}
   .btn{
-    position:fixed; right:12px; top:12px; z-index:9999;
-    padding:8px 12px; border-radius:999px; border:0; background:#000; color:#fff;
-    font-size:14px; opacity:.75
+    padding:8px 12px; border-radius:999px; border:0; background:var(--btn-bg); color:var(--btn-fg);
+    font-size:14px; opacity:.85; cursor:pointer
   }
-  .btn:active{opacity:1}
+  .btn:hover{opacity:1}
+  .menu{
+    position:absolute; right:0; top:44px; min-width:180px;
+    background:var(--menu-bg); color:var(--menu-fg); border-radius:12px; overflow:hidden;
+    display:none; z-index:10000; box-shadow:0 10px 30px rgba(0,0,0,.25); backdrop-filter: blur(8px);
+  }
+  .menu.open{display:block}
+  .menu button{
+    display:block; width:100%; text-align:left; padding:10px 14px; background:transparent; color:#fff; border:0; cursor:pointer; font-size:14px;
+  }
+  .menu button:hover{background:rgba(255,255,255,.08)}
+
+  /* 粒子（心/纸屑/烟花/雪/气球） */
+  .particle{position:absolute; pointer-events:none; will-change:transform,opacity}
+  .heart{font-size:16px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.2))}
+  .confetti{width:8px; height:12px; transform-origin:50% 50%; border-radius:2px}
+  .snow{width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,.95); box-shadow:0 0 10px rgba(255,255,255,.8)}
+  .balloon{width:18px; height:24px; border-radius:50% 50% 50% 50% / 60% 60% 40% 40%; box-shadow:0 3px 10px rgba(0,0,0,.15)}
+
+  /* 隐藏祝福样式 */
+  .secret{
+    outline:2px dashed rgba(0,0,0,.2);
+    box-shadow:0 6px 16px rgba(0,0,0,.18) !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tile,.particle{animation:none !important}
+  }
 </style>
 </head>
 <body>
   <div id="stage"></div>
-  <button id="closeAll" class="btn">关闭</button>
+
+  <div class="toolbar">
+    <button id="modeBtn" class="btn">模式：LEA</button>
+    <button id="closeAll" class="btn">清屏</button>
+    <div id="modeMenu" class="menu" aria-label="模式菜单">
+      <button data-mode="LEA">LEA 字形 + 弹窗</button>
+      <button data-mode="HEART_RAIN">心形雨</button>
+      <button data-mode="FIREWORKS">烟花</button>
+      <button data-mode="SNOW">雪花</button>
+      <button data-mode="BALLOONS">气球上浮</button>
+      <button data-mode="CONFETTI">Confetti</button>
+    </div>
+  </div>
 
 <script>
-/* ===== 参数 ===== */
-const WORD = "LEA";           // 第一阶段要显示的字母
-const START_MS = 200;         // 生成间隔（由慢到快）
+/* ===================== 全局配置 ===================== */
+const WORD = "LEA";
+const START_MS = 200;
 const END_MS   = 20;
-const JITTER_PX = 3;          // 砖块微抖动像素
-const COVER_RATIO = 0.8;      // “LEA”整体占屏宽的比例
-const CELL_GAP = 4;           // 点阵间隙
-const LEA_FADE_MS = 260;      // LEA 消失动画时间（毫秒）
+const JITTER_PX = 3;
+const COVER_RATIO = 0.8;
+const CELL_GAP = 4;
+const LEA_FADE_MS = 260;
 
-// 满屏弹窗用的卡片尺寸/随机度
 const WIN_W = 240;
-const WIN_H = 60;
+const WIN_H = 64;
 const JITTER_RATIO = 0.4;
 
-const TIPS = [
-  'Lea按时吃饭~','lea保持微笑呀','Lea早点回家~','记得吃水果','Lea你已经很棒了呀~',
-  '好好爱自己','Lea秋招上岸','梦想成真','Lea春招上岸','顺顺利利',
-  'Lea按时吃饭','愿所有烦恼都消失','别熬夜','Lea今天过得开心嘛','悉尼天冷了，多穿衣服'
+const TIPS_SETS = [
+  ['Lea按时吃饭~','lea保持微笑呀','Lea早点回家~','记得吃水果','Lea你已经很棒了呀~','好好爱自己','Lea秋招上岸','梦想成真','Lea春招上岸','顺顺利利','Lea按时吃饭','愿所有烦恼都消失','别熬夜','Lea今天过得开心嘛','悉尼天冷了，多穿衣服'],
+  ['今天也要开心','喝水！','深呼吸三次','早点睡别熬夜','你值得最好的一切','小确幸正在路上','去散个步吧','做一件小小但正确的事'],
+  ['祝你一路顺风','万事顺利','所愿皆成真','平安喜乐','好事发生在今天','好运排队来']
 ];
-const BG_COLORS = [
-  'lightpink','skyblue','lightgreen','lavender','lightyellow',
-  'plum','coral','bisque','aquamarine','mistyrose','honeydew','lavenderblush','oldlace'
+const PALETTES = [
+  ['#ffd3e0','#bde0fe','#c7f9cc','#e9e5ff','#fff6b3','#ffcfb3'],
+  ['#f9e2af','#a6e3a1','#f5c2e7','#cba6f7','#89dceb','#fab387'],
+  ['#ffedd5','#d1fae5','#e0e7ff','#fef9c3','#fee2e2','#f1f5f9']
 ];
+let TIPS = TIPS_SETS[0];
+let BG_COLORS = PALETTES[0];
 
-/* ===== 5x7 字模 ===== */
 const FONT_5x7 = {
   'L': ["1....","1....","1....","1....","1....","1....","11111"],
   'E': ["11111","1....","1....","1111.","1....","1....","11111"],
@@ -58,6 +109,104 @@ const FONT_5x7 = {
   ' ': [".....",".....",".....",".....",".....",".....","....."],
 };
 
+const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+const randInt = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+const choice = arr => arr[Math.floor(Math.random()*arr.length)];
+
+/* 计时器池，切模式时统一清理 */
+const timers = new Set();
+const intervals = new Set();
+function later(fn,ms){ const id=setTimeout(()=>{timers.delete(id); fn();},ms); timers.add(id); return id; }
+function every(fn,ms){ const id=setInterval(fn,ms); intervals.add(id); return id; }
+function clearAllTimers(){ for(const t of timers) clearTimeout(t); timers.clear(); for(const i of intervals) clearInterval(i); intervals.clear(); }
+
+/* ===================== 工具：建卡片/粒子 ===================== */
+function makeTile(stage, spec, text="", tag=null){
+  const div = document.createElement('div');
+  div.className = 'tile';
+  div.dataset.tag = tag || '';
+  div.style.left = spec.x + 'px';
+  div.style.top  = spec.y + 'px';
+  div.style.width  = spec.w + 'px';
+  div.style.height = spec.h + 'px';
+  div.style.background = choice(BG_COLORS);
+  div.style.fontSize = Math.max(10, Math.floor(Math.min(spec.w,spec.h)/2.9)) + 'px';
+  div.textContent = text;
+
+  // 点击彩蛋：心/纸屑
+  const clickBurst = (e) => {
+    const rect = div.getBoundingClientRect();
+    const cx = rect.left + rect.width/2 + window.scrollX;
+    const cy = rect.top  + rect.height/2 + window.scrollY;
+    Math.random() < 0.5 ? burstHearts(cx, cy) : burstConfetti(cx, cy);
+  };
+
+  // 长按彩蛋：隐藏祝福
+  let pressTimer=null, pressed=false;
+  const onDown = (e)=>{
+    pressed = true;
+    pressTimer = setTimeout(()=>{
+      if(pressed){
+        div.classList.add('secret');
+        div.textContent = choice(['🎁 你超棒','💖 小小好运已签收','🌟 今日限定好心情','🎯 一切顺利']);
+        div.animate([{transform:'scale(1)'},{transform:'scale(1.06)'}], {duration:220, fill:'forwards', easing:'ease-out'});
+      }
+    }, 600);
+  };
+  const onUp = (e)=>{
+    if(pressTimer){ clearTimeout(pressTimer); pressTimer=null; }
+    if(pressed){ // 如果没触发长按，就当点击爆裂
+      if(!div.classList.contains('secret')) clickBurst(e);
+    }
+    pressed=false;
+  };
+
+  div.addEventListener('pointerdown', onDown);
+  window.addEventListener('pointerup', onUp, {once:false});
+
+  stage.appendChild(div);
+  div.animate([{opacity:0,transform:'scale(0.92)'},{opacity:1,transform:'scale(1)'}], {duration:180, easing:'ease-out'});
+  return div;
+}
+
+function spawnParticle(cls, styles, keyframes, options){
+  const p = document.createElement('div');
+  p.className = 'particle ' + cls;
+  Object.assign(p.style, styles);
+  document.getElementById('stage').appendChild(p);
+  const anim = p.animate(keyframes, options);
+  anim.onfinish = ()=>p.remove();
+  return p;
+}
+
+function burstHearts(x,y,count=10){
+  for(let i=0;i<count;i++){
+    const ang = Math.random()*Math.PI*2;
+    const dist = 10+Math.random()*24;
+    const tx = x + Math.cos(ang)*dist;
+    const ty = y + Math.sin(ang)*dist - 10;
+    spawnParticle('heart', {left:x+'px', top:y+'px', color:choice(['#ff4d6d','#ff8fa3','#e03131','#f783ac'])}, [
+      {transform:'translate(-50%,-50%) scale(0.8)', opacity:0.0},
+      {transform:`translate(${tx-x-50}%, ${ty-y-50}%) scale(1.2)`, opacity:1, offset:.6},
+      {transform:`translate(${tx-x-50}%, ${ty-y-70}%) scale(0.9)`, opacity:0}
+    ], {duration:600+Math.random()*400, easing:'ease-out', fill:'forwards'}).textContent='❤';
+  }
+}
+
+function burstConfetti(x,y,count=14){
+  for(let i=0;i<count;i++){
+    const col = choice(['#f94144','#f3722c','#f9c74f','#90be6d','#577590','#f72585','#4cc9f0']);
+    const rx = (Math.random()-0.5)*60;
+    const ry = (Math.random()-0.5)*40;
+    const rot = (Math.random()*720-360)+'deg';
+    spawnParticle('confetti', {left:(x-4)+'px', top:(y-6)+'px', background:col}, [
+      {transform:'translate(0,0) rotate(0)', opacity:1},
+      {transform:`translate(${rx}px, ${40+ry}px) rotate(${rot})`, opacity:0}
+    ], {duration:700+Math.random()*500, easing:'cubic-bezier(.2,.8,.2,1)', fill:'forwards'});
+  }
+}
+
+/* ===================== LEA 阶段 + 满屏弹窗 + 二次演出 ===================== */
 function buildMask(text, spaceCols=1){
   const rows = 7;
   const maskRows = Array(rows).fill("");
@@ -72,32 +221,10 @@ function buildMask(text, spaceCols=1){
   return maskRows;
 }
 
-const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
-const randInt = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
-const choice = arr => arr[Math.floor(Math.random()*arr.length)];
-
-function makeTile(stage, spec, text="", tag=null){
-  const div = document.createElement('div');
-  div.className = 'tile';
-  div.dataset.tag = tag || '';
-  div.style.left = spec.x + 'px';
-  div.style.top  = spec.y + 'px';
-  div.style.width  = spec.w + 'px';
-  div.style.height = spec.h + 'px';
-  div.style.background = choice(BG_COLORS);
-  div.style.fontSize = Math.max(9, Math.floor(Math.min(spec.w,spec.h)/2.8)) + 'px';
-  div.textContent = text;
-  div.addEventListener('click', e => { e.stopPropagation(); div.remove(); }, {passive:true});
-  stage.appendChild(div);
-  div.animate([{opacity:0,transform:'scale(0.9)'},{opacity:1,transform:'scale(1)'}], {duration:180, easing:'ease-out'});
-  return div;
-}
-
-/* ===== 阶段一：LEA（无文字） ===== */
 function collectLetterPositions(maskRows, sw, sh){
   const rows = maskRows.length;
   const cols = maskRows.reduce((m,row)=>Math.max(m,row.length),0);
-  if(!cols) return {positions:[], dotW:0, dotH:0};
+  if(!cols) return {positions:[]};
 
   const totalWTarget = Math.floor(sw * COVER_RATIO);
   const pitchX = Math.max(12, Math.floor(totalWTarget / cols));
@@ -131,47 +258,6 @@ function collectLetterPositions(maskRows, sw, sh){
   return {positions};
 }
 
-function fadeOutAndRemove(elems, ms=LEA_FADE_MS){
-  return new Promise(resolve=>{
-    if(!elems || elems.length===0){ resolve(); return; }
-    let done = 0;
-    for(const el of elems){
-      el.animate([{opacity:1,transform:'scale(1)'},{opacity:0,transform:'scale(0.9)'}], {duration:ms, easing:'ease-in'}).onfinish = ()=>{
-        el.remove();
-        done++;
-        if(done === elems.length) resolve();
-      };
-    }
-  });
-}
-
-async function runLetters(word="LEA"){
-  const stage = document.getElementById('stage');
-  stage.innerHTML = '';
-  const sw = stage.clientWidth;
-  const sh = stage.clientHeight;
-  const mask = buildMask(word, 1);
-  const {positions} = collectLetterPositions(mask, sw, sh);
-  const total = positions.length;
-
-  const created = [];
-  await new Promise(res=>{
-    let i = 0;
-    (function spawn(){
-      if(i>=total){ res(); return; }
-      const p = (i+1)/total;
-      const interval = Math.max(END_MS, Math.floor(START_MS*(1-p)*(1-p) + END_MS*p));
-      created.push( makeTile(stage, positions[i], "", "phase1") ); // 无文字
-      i++;
-      setTimeout(spawn, interval);
-    })();
-  });
-
-  // 生成完后立即消失
-  await fadeOutAndRemove(created, LEA_FADE_MS);
-}
-
-/* ===== 阶段二：满屏弹窗（有文字） ===== */
 function collectRandomPositions(sw, sh){
   const n_windows = Math.floor((sw * sh) / (WIN_W * WIN_H) * 1.5);
   const positions = [];
@@ -184,13 +270,51 @@ function collectRandomPositions(sw, sh){
     const y = randInt(0, Math.max(0, sh - h));
     positions.push({x,y,w,h});
   }
-  return positions.sort(()=>Math.random()-0.5); // 打乱
+  return positions.sort(()=>Math.random()-0.5);
+}
+
+function fadeOutAndRemove(elems, ms=LEA_FADE_MS){
+  return new Promise(resolve=>{
+    if(!elems || elems.length===0){ resolve(); return; }
+    let done = 0;
+    for(const el of elems){
+      el.animate([{opacity:1,transform:'scale(1)'},{opacity:0,transform:'scale(0.9)'}], {duration:ms, easing:'ease-in'}).onfinish = ()=>{
+        el.remove();
+        if(++done === elems.length) resolve();
+      };
+    }
+  });
+}
+
+async function runLetters(word="LEA"){
+  const stage = document.getElementById('stage');
+  // 清仅限 LEA 阶段已存在的点
+  Array.from(stage.querySelectorAll('.tile[data-tag="phase1"]')).forEach(n=>n.remove());
+
+  const sw = stage.clientWidth, sh = stage.clientHeight;
+  const mask = buildMask(word, 1);
+  const {positions} = collectLetterPositions(mask, sw, sh);
+  const total = positions.length;
+
+  const created = [];
+  await new Promise(res=>{
+    let i = 0;
+    (function spawn(){
+      if(i>=total){ res(); return; }
+      const p = (i+1)/total;
+      const interval = Math.max(END_MS, Math.floor(START_MS*(1-p)*(1-p) + END_MS*p));
+      created.push( makeTile(stage, positions[i], "", "phase1") );
+      i++;
+      later(spawn, interval);
+    })();
+  });
+
+  await fadeOutAndRemove(created, LEA_FADE_MS);
 }
 
 function runFill(){
   const stage = document.getElementById('stage');
-  const sw = stage.clientWidth;
-  const sh = stage.clientHeight;
+  const sw = stage.clientWidth, sh = stage.clientHeight;
   const positions = collectRandomPositions(sw, sh);
   const total = positions.length;
   let i = 0;
@@ -198,32 +322,180 @@ function runFill(){
     if(i>=total) return;
     const p = (i+1)/total;
     const interval = Math.max(END_MS, Math.floor(START_MS*(1-p)*(1-p) + END_MS*p));
-    makeTile(stage, positions[i], choice(TIPS), "phase2"); // 显示文字
+    makeTile(stage, positions[i], choice(TIPS), "phase2");
     i++;
-    setTimeout(spawn, interval);
+    later(spawn, interval);
   })();
+
+  // 二次演出：等待大约 800ms 后，随机挑选 25% 抬升+旋转+淡出，然后换新配色/词条再铺一轮
+  later(async ()=>{
+    const cards = Array.from(stage.querySelectorAll('.tile[data-tag="phase2"]'));
+    if(!cards.length) return;
+    const pickN = Math.max(8, Math.floor(cards.length*0.25));
+    const chosen = cards.sort(()=>Math.random()-0.5).slice(0, pickN);
+    await new Promise(done=>{
+      let finished = 0;
+      chosen.forEach(el=>{
+        el.animate([
+          {transform:'translateY(0) rotate(0)', opacity:1},
+          {transform:`translateY(-40px) rotate(${randInt(-12,12)}deg)`, opacity:0}
+        ], {duration:500+Math.random()*300, easing:'ease-in'}).onfinish=()=>{
+          el.remove();
+          if(++finished===chosen.length) done();
+        };
+      });
+    });
+    // 切换新主题
+    BG_COLORS = choice(PALETTES);
+    TIPS = choice(TIPS_SETS);
+    runFill();
+  }, 800);
 }
+
+/* ===================== 模式：心形雨/烟花/雪花/气球/Confetti ===================== */
+function modeHeartRain(){
+  const st = document.getElementById('stage');
+  const spawn = ()=> {
+    const x = randInt(20, st.clientWidth-20);
+    const y = -20;
+    const dur = 3000 + Math.random()*2000;
+    const p = spawnParticle('heart', {left:x+'px', top:y+'px', color:choice(['#ff4d6d','#ff8fa3','#f06595','#e03131'])}, [
+      {transform:'translate(-50%,-50%) scale(0.8)', opacity:0},
+      {transform:`translate(-50%, ${st.clientHeight+40}px) scale(1.1)`, opacity:1}
+    ], {duration:dur, easing:'linear', fill:'forwards'});
+    p.textContent='❤';
+  };
+  every(spawn, 120);
+}
+
+function modeSnow(){
+  const st = document.getElementById('stage');
+  const spawn = ()=> {
+    const x = randInt(0, st.clientWidth);
+    const size = randInt(6,12);
+    const dur = 6000 + Math.random()*4000;
+    spawnParticle('snow', {left:x+'px', top:'-10px', width:size+'px', height:size+'px', opacity:.9}, [
+      {transform:`translateY(${st.clientHeight+20}px)` , opacity:.95},
+      {opacity:0}
+    ], {duration:dur, easing:'linear', fill:'forwards'});
+  };
+  every(spawn, 80);
+}
+
+function modeBalloons(){
+  const st = document.getElementById('stage');
+  const spawn = ()=> {
+    const x = randInt(20, st.clientWidth-20);
+    const clr = choice(['#ffadad','#ffd6a5','#fdffb6','#caffbf','#9bf6ff','#a0c4ff','#bdb2ff']);
+    const dur = 6000 + Math.random()*4000;
+    spawnParticle('balloon', {left:x+'px', bottom:'-30px', background:clr}, [
+      {transform:'translate(-50%, 0)'},
+      {transform:`translate(-50%, -${st.clientHeight+60}px)`, opacity:.2}
+    ], {duration:dur, easing:'cubic-bezier(.25,.8,.2,1)', fill:'forwards'});
+  };
+  every(spawn, 280);
+}
+
+function modeConfetti(){
+  const st = document.getElementById('stage');
+  const spawn = ()=> {
+    const x = randInt(0, st.clientWidth);
+    const y = -10;
+    const dur = 2500 + Math.random()*2000;
+    const rot = (Math.random()*720-360)+'deg';
+    spawnParticle('confetti', {left:x+'px', top:y+'px', background:choice(['#f94144','#f3722c','#f9c74f','#90be6d','#577590','#f72585','#4cc9f0'])}, [
+      {transform:'translateY(0) rotate(0)', opacity:1},
+      {transform:`translateY(${st.clientHeight+20}px) rotate(${rot})`, opacity:.9}
+    ], {duration:dur, easing:'linear', fill:'forwards'});
+  };
+  every(spawn, 40);
+}
+
+function modeFireworks(){
+  const st = document.getElementById('stage');
+  const fire = ()=>{
+    const cx = randInt(80, st.clientWidth-80);
+    const cy = randInt(80, Math.max(120, st.clientHeight*0.6));
+    // 上升光点
+    const rocket = spawnParticle('particle', {left:cx+'px', top:(st.clientHeight+20)+'px', width:'2px', height:'12px', background:'#fff'}, [
+      {transform:`translate(-50%, -${st.clientHeight - cy}px)`, opacity:1},
+      {opacity:0}
+    ], {duration:700, easing:'cubic-bezier(.3,.9,.2,1)', fill:'forwards'});
+    later(()=>burstConfetti(cx, cy, 24), 680);
+  };
+  every(fire, 900);
+}
+
+/* ===================== 模式切换与控制 ===================== */
+let CURRENT_MODE = 'LEA';
 
 function closeAll(){
-  document.getElementById('stage').innerHTML = '';
+  clearAllTimers();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = '';
 }
 
-window.addEventListener('load', async () => {
-  await runLetters(WORD); // 先出现 LEA（无文字），完成后自动消失
-  runFill();              // 然后满屏弹窗
+async function startLEAFlow(){
+  closeAll();
+  // 重置主题
+  BG_COLORS = PALETTES[0];
+  TIPS = TIPS_SETS[0];
+  await runLetters(WORD);
+  runFill();
 
-  document.getElementById('closeAll').addEventListener('click', closeAll, {passive:true});
-  window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeAll(); });
-
-  // 窗口尺寸变化时，重新跑一遍两阶段
+  // 窗口尺寸变化时，重跑（只在 LEA 模式下）
   let resizeTimer=null;
-  window.addEventListener('resize', ()=>{
+  const onResize = ()=>{
     clearTimeout(resizeTimer);
-    resizeTimer=setTimeout(async ()=>{
+    resizeTimer = later(async ()=>{
+      if(CURRENT_MODE!=='LEA') return;
+      closeAll();
       await runLetters(WORD);
       runFill();
     }, 250);
-  });
+  };
+  window.addEventListener('resize', onResize, {once:false});
+  // 清理监听在切模式时由 closeAllTimers + closeAll 实现（因为我们没保存引用，这里简单）
+}
+
+function setMode(m){
+  CURRENT_MODE = m;
+  document.getElementById('modeBtn').textContent = '模式：' + ({
+    'LEA':'LEA','HEART_RAIN':'心形雨','FIREWORKS':'烟花','SNOW':'雪花','BALLOONS':'气球上浮','CONFETTI':'Confetti'
+  }[m] || m);
+
+  closeAll();
+  if(m==='LEA'){ startLEAFlow(); return; }
+  if(m==='HEART_RAIN'){ modeHeartRain(); return; }
+  if(m==='FIREWORKS'){ modeFireworks(); return; }
+  if(m==='SNOW'){ modeSnow(); return; }
+  if(m==='BALLOONS'){ modeBalloons(); return; }
+  if(m==='CONFETTI'){ modeConfetti(); return; }
+}
+
+/* ===================== 顶部菜单交互 ===================== */
+const modeBtn = document.getElementById('modeBtn');
+const modeMenu = document.getElementById('modeMenu');
+modeBtn.addEventListener('click', ()=>{
+  modeMenu.classList.toggle('open');
+});
+modeMenu.addEventListener('click', (e)=>{
+  const m = e.target.getAttribute('data-mode');
+  if(!m) return;
+  modeMenu.classList.remove('open');
+  setMode(m);
+});
+document.addEventListener('click', (e)=>{
+  if(!modeMenu.contains(e.target) && e.target!==modeBtn){
+    modeMenu.classList.remove('open');
+  }
+});
+
+document.getElementById('closeAll').addEventListener('click', closeAll, {passive:true});
+
+/* ===================== 启动 ===================== */
+window.addEventListener('load', ()=>{
+  setMode('LEA'); // 默认进 LEA 流程
 });
 </script>
 </body>
