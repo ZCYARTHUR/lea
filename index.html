@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>LEA 动画 · DOM 多模式 + GPU 粒子字形场（Points修复版）</title>
+<title>LEA 动画 · DOM 多模式 + GPU 粒子字形场（修复版）</title>
 <link rel="icon" href="data:,">
 <style>
   :root{ --btn-bg:#000; --btn-fg:#fff; --menu-bg:rgba(0,0,0,.85); --menu-fg:#fff; }
@@ -99,7 +99,7 @@
   <div id="unlockMask" class="unlock-mask"><div class="unlock-card">🔊 轻触屏幕开启音乐</div></div>
 
 <script type="module">
-/* =============== 你的 DOM 模式：原功能保留，略去注释以缩短 =============== */
+/* ===================== DOM 动画：原功能保留 ===================== */
 const WORD="LEA", START_MS=200, END_MS=20, JITTER_PX=3, COVER_RATIO=.8, CELL_GAP=4, LEA_FADE_MS=260;
 const WIN_W=240, WIN_H=64, JITTER_RATIO=.4;
 const TIPS_SETS=[['Lea按时吃饭~','lea保持微笑呀','Lea早点回家~','记得吃水果','Lea你已经很棒了呀~','好好爱自己','Lea秋招上岸','梦想成真','Lea春招上岸','顺顺利利','Lea按时吃饭','愿所有烦恼都消失','别熬夜','Lea今天过得开心嘛','悉尼天冷了，多穿衣服'],['今天也要开心','喝水！','深呼吸三次','早点睡别熬夜','你值得最好的一切','小确幸正在路上','去散个步吧','做一件小小但正确的事'],['祝你一路顺风','万事顺利','所愿皆成真','平安喜乐','好事发生在今天','好运排队来']];
@@ -128,23 +128,37 @@ function modeSnow(){const st=document.getElementById('stage');const spawn=()=>{c
 function modeBalloons(){const st=document.getElementById('stage');const spawn=()=>{const x=randInt(20,st.clientWidth-20),clr=choice(['#ffadad','#ffd6a5','#fdffb6','#caffbf','#9bf6ff','#a0c4ff','#bdb2ff']),dur=6000+Math.random()*4000;spawnParticle('balloon',{left:x+'px',bottom:'-30px',background:clr},[{transform:'translate(-50%, 0)'},{transform:`translate(-50%, -${st.clientHeight+60}px)`,opacity:.2}],{duration:dur,easing:'cubic-bezier(.25,.8,.2,1)',fill:'forwards'});};every(spawn,280);}
 function modeConfetti(){const st=document.getElementById('stage');const spawn=()=>{const x=randInt(0,st.clientWidth),dur=2500+Math.random()*2000,rot=(Math.random()*720-360)+'deg';spawnParticle('confetti',{left:x+'px',top:'-10px',background:choice(['#f94144','#f3722c','#f9c74f','#90be6d','#577590','#f72585','#4cc9f0'])},[{transform:'translateY(0) rotate(0)',opacity:1},{transform:`translateY(${st.clientHeight+20}px) rotate(${rot})`,opacity:.9}],{duration:dur,easing:'linear',fill:'forwards'});} ;every(spawn,40);}
 
-/* =============== 模式切换（含 GPU 集成） =============== */
+/* ===================== 菜单 & 模式切换（避免重复声明） ===================== */
 let CURRENT_MODE='LEA';
 const gpuRoot=document.getElementById('gpuRoot');
 const gpuTextBtn=document.getElementById('gpuTextBtn');
 const gpuDiag=document.getElementById('gpuDiag');
 const maskPreviewImg=document.getElementById('maskPreview');
+const modeBtn=document.getElementById('modeBtn');   // ← 只声明一次
+const modeMenu=document.getElementById('modeMenu');
+
 function showGPU(b){gpuRoot.style.display=b?'block':'none';document.getElementById('stage').style.visibility=b?'hidden':'visible';gpuTextBtn.style.display=b?'inline-block':'none';}
-async function startLEAFlow(){closeAll();showGPU(false);BG_COLORS=PALETTES[0];TIPS=TIPS_SETS[0];await runLetters(WORD);runFill();let t=null;const onR=()=>{clearTimeout(t);t=later(async()=>{if(CURRENT_MODE!=='LEA')return;closeAll();await runLetters(WORD);runFill();},250)};addEventListener('resize',onR,{once:false});}
-function closeAll(){clearAllTimers();document.getElementById('stage').innerHTML='';}
-function setMode(m){CURRENT_MODE=m;document.getElementById('modeBtn').textContent='模式：'+({'LEA':'LEA','HEART_RAIN':'心形雨','FIREWORKS':'烟花','SNOW':'雪花','BALLOONS':'气球上浮','CONFETTI':'Confetti','GPU':'GPU 字形粒子'}[m]||m);if(window.GPUGlyph&&window.GPUGlyph.stop){window.GPUGlyph.stop();}closeAll();if(m==='LEA'){startLEAFlow();return;}if(m==='HEART_RAIN'){showGPU(false);modeHeartRain();return;}if(m==='FIREWORKS'){showGPU(false);modeConfetti();return;}if(m==='SNOW'){showGPU(false);modeSnow();return;}if(m==='BALLOONS'){showGPU(false);modeBalloons();return;}if(m==='CONFETTI'){showGPU(false);modeConfetti();return;}if(m==='GPU'){showGPU(true);window.GPUGlyph?.start({text:WORD});return;}}
-const modeBtn=document.getElementById('modeBtn');const modeMenu=document.getElementById('modeMenu');
+async function startLEAFlow(){clearAllTimers();document.getElementById('stage').innerHTML='';showGPU(false);BG_COLORS=PALETTES[0];TIPS=TIPS_SETS[0];await runLetters(WORD);runFill();let t=null;const onR=()=>{clearTimeout(t);t=later(async()=>{if(CURRENT_MODE!=='LEA')return;clearAllTimers();document.getElementById('stage').innerHTML='';await runLetters(WORD);runFill();},250)};addEventListener('resize',onR,{once:false});}
+function setMode(m){
+  CURRENT_MODE=m;
+  modeBtn.textContent='模式：'+({'LEA':'LEA','HEART_RAIN':'心形雨','FIREWORKS':'烟花','SNOW':'雪花','BALLOONS':'气球上浮','CONFETTI':'Confetti','GPU':'GPU 字形粒子'}[m]||m);
+  if(window.GPUGlyph&&window.GPUGlyph.stop){window.GPUGlyph.stop();}
+  clearAllTimers(); document.getElementById('stage').innerHTML='';
+  if(m==='LEA'){startLEAFlow();return;}
+  if(m==='HEART_RAIN'){showGPU(false);modeHeartRain();return;}
+  if(m==='FIREWORKS'){showGPU(false);modeConfetti();return;}
+  if(m==='SNOW'){showGPU(false);modeSnow();return;}
+  if(m==='BALLOONS'){showGPU(false);modeBalloons();return;}
+  if(m==='CONFETTI'){showGPU(false);modeConfetti();return;}
+  if(m==='GPU'){showGPU(true);window.GPUGlyph?.start({text:WORD});return;}
+}
+
 modeBtn.addEventListener('click',()=>{modeMenu.classList.toggle('open');modeBtn.setAttribute('aria-expanded',modeMenu.classList.contains('open')?'true':'false');});
 modeMenu.addEventListener('click',e=>{const m=e.target.getAttribute('data-mode');if(!m)return;modeMenu.classList.remove('open');modeBtn.setAttribute('aria-expanded','false');setMode(m);});
 addEventListener('click',e=>{if(!modeMenu.contains(e.target)&&e.target!==modeBtn){modeMenu.classList.remove('open');modeBtn.setAttribute('aria-expanded','false');}});
-document.getElementById('closeAll').addEventListener('click',()=>{if(CURRENT_MODE==='GPU'){window.GPUGlyph?.resetParticles?.();}else{closeAll();}},{passive:true});
+document.getElementById('closeAll').addEventListener('click',()=>{if(CURRENT_MODE==='GPU'){window.GPUGlyph?.resetParticles?.();}else{clearAllTimers();document.getElementById('stage').innerHTML='';}},{passive:true});
 
-/* ================== 音乐控制 ================== */
+/* ===================== 音乐控制 ===================== */
 const bgm=document.getElementById('bgm');const musicBtn=document.getElementById('musicBtn');const musicMenu=document.getElementById('musicMenu');const volSlider=document.getElementById('musicVol');const muteBtn=document.getElementById('muteBtn');const unlockMask=document.getElementById('unlockMask');
 try{const lastVol=localStorage.getItem('bgm.volume');bgm.volume=lastVol!==null?Math.min(1,Math.max(0,parseFloat(lastVol))):0.6;volSlider.value=String(bgm.volume);}catch(_){bgm.volume=0.6;}
 async function autoStartBgm(){try{bgm.muted=false;await bgm.play();musicBtn.textContent='音乐：暂停';unlockMask.classList.remove('show');}catch(e){unlockMask.classList.add('show');const once=async()=>{unlockMask.classList.remove('show');removeEventListener('pointerdown',once,{capture:true});try{await bgm.play();musicBtn.textContent='音乐：暂停';}catch(_){}};addEventListener('pointerdown',once,{once:true,capture:true});}}
@@ -156,7 +170,7 @@ addEventListener('click',e=>{if(!musicMenu.contains(e.target)&&e.target!==musicB
 volSlider.addEventListener('input',e=>{const v=parseFloat(e.target.value);bgm.volume=isNaN(v)?0.6:v;try{localStorage.setItem('bgm.volume',String(bgm.volume));}catch(_){}} );
 muteBtn.addEventListener('click',()=>{bgm.muted=!bgm.muted;muteBtn.textContent=bgm.muted?'取消静音':'静音';});
 
-/* ================== GPU 模块（WebGL2 + GPGPU，Points 渲染） ================== */
+/* ===================== GPU 模块：WebGL2 + GPGPU（Points 管线） ===================== */
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 THREE.Cache.enabled = true;
 
@@ -196,10 +210,12 @@ window.GPUGlyph = (function(){
   function buildComputePass(){
     compScene=new THREE.Scene(); compCam=new THREE.OrthographicCamera(-1,1,1,-1,-1,1);
     const quadGeom=new THREE.PlaneGeometry(2,2);
+    // 复制 position 为 pos_custom，着色器只引用 pos_custom，避免与引擎注入的 position 冲突
+    quadGeom.setAttribute('pos_custom', quadGeom.attributes.position);
     compMat=new THREE.ShaderMaterial({
       glslVersion:THREE.GLSL3,
       uniforms:{prevTex:{value:stateTex},maskTex:{value:maskTex},uTexSize:{value:new THREE.Vector2(texSide,texSide)},uMaskSize:{value:new THREE.Vector2(MASK_W,MASK_H)},uAspect:{value:aspect},uDt:{value:0.016},uTime:{value:0},uDrive:{value:0.28},uDamping:{value:0.92},uNoise:{value:0.004},uEdgeThr:{value:0.5},uEnergy:{value:0.0}},
-      vertexShader:`out vec2 vUv; void main(){ vUv = position.xy*0.5+0.5; gl_Position = vec4(position,1.0); }`,
+      vertexShader:`in vec3 pos_custom; out vec2 vUv; void main(){ vUv = pos_custom.xy*0.5+0.5; gl_Position = vec4(pos_custom,1.0); }`,
       fragmentShader:`
         precision highp float; precision highp sampler2D;
         in vec2 vUv; out vec4 outColor;
@@ -232,16 +248,14 @@ window.GPUGlyph = (function(){
 
   function buildRenderPassPoints(){
     const geom=new THREE.BufferGeometry();
-    // 提供一个最小属性，作为顶点计数（依赖 aIndex，不再使用 position）
     const ids=new Float32Array(COUNT); for(let i=0;i<COUNT;i++) ids[i]=i;
     geom.setAttribute('aIndex', new THREE.BufferAttribute(ids,1));
-
     const cols=palette.map(c=> new THREE.Color(c));
     renderMat=new THREE.RawShaderMaterial({
       glslVersion:THREE.GLSL3,
       uniforms:{
         posTex:{value:readRT.texture}, uTexSize:{value:new THREE.Vector2(texSide,texSide)},
-        uAspect:{value:aspect}, uSize:{value:0.012}, uEnergy:{value:0.0}, uScreenH:{value:screenH},
+        uAspect:{value:aspect}, uSize:{value:0.012}, uEnergy:{value:0.0}, uScreenH:{value:1.0},
         uP0:{value:cols[0]}, uP1:{value:cols[1]}, uP2:{value:cols[2]}, uP3:{value:cols[3]}, uP4:{value:cols[4]}, uP5:{value:cols[5]},
       },
       vertexShader:`#version 300 es
@@ -258,7 +272,7 @@ window.GPUGlyph = (function(){
           vec2 pos = s.xy;
           float size = uSize * (1.0 + uEnergy*0.6);
           gl_Position = vec4(pos.x / uAspect, pos.y, 0.0, 1.0);
-          gl_PointSize = size * (uScreenH * 0.5);  // 世界单位 -> 像素：以屏幕高度为基准
+          gl_PointSize = size * (uScreenH * 0.5);
           vIndex = float(id % 6);
         }`,
       fragmentShader:`#version 300 es
@@ -272,7 +286,6 @@ window.GPUGlyph = (function(){
           else if(idx==3) return uP3; else if(idx==4) return uP4; else return uP5;
         }
         void main(){
-          // 圆形软边点精灵
           vec2 d = gl_PointCoord - vec2(0.5);
           float r = length(d);
           float alpha = smoothstep(0.5, 0.46, 0.5 - r);
@@ -297,7 +310,7 @@ window.GPUGlyph = (function(){
   function onResize(){
     const w=canvas.clientWidth, h=canvas.clientHeight;
     renderer.setSize(w,h,false);
-    aspect=w/h; screenH=h*window.devicePixelRatio;
+    aspect=w/h; const screenH = h*window.devicePixelRatio;
     if(compMat){ compMat.uniforms.uAspect.value=aspect; }
     if(renderMat){ renderMat.uniforms.uAspect.value=aspect; renderMat.uniforms.uScreenH.value=screenH; }
   }
@@ -320,7 +333,6 @@ window.GPUGlyph = (function(){
     }
 
     aspect=gpuRoot.clientWidth/gpuRoot.clientHeight;
-    screenH=gpuRoot.clientHeight*window.devicePixelRatio;
 
     COUNT=Math.max(20000, COUNT|0);
     texSide=Math.ceil(Math.sqrt(COUNT));
@@ -360,9 +372,12 @@ window.GPUGlyph = (function(){
   return { start, stop, resetParticles, setText };
 })();
 
-/* =============== 页面启动 =============== */
-const modeBtn=document.getElementById('modeBtn');const musicBtn=document.getElementById('musicBtn');
-window.addEventListener('load',()=>{ setMode('LEA'); musicBtn.textContent=document.getElementById('bgm').paused?'音乐：播放':'音乐：暂停'; autoStartBgm(); });
+/* ===================== 页面启动 ===================== */
+window.addEventListener('load',()=>{ 
+  setMode('LEA'); 
+  document.getElementById('musicBtn').textContent=document.getElementById('bgm').paused?'音乐：播放':'音乐：暂停'; 
+  autoStartBgm(); 
+});
 </script>
 </body>
 </html>
