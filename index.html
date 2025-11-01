@@ -15,6 +15,7 @@
   /* GPU 场景容器（默认隐藏，GPU 模式开启） */
   #gpuRoot{position:fixed; inset:0; display:none; background:#0b0c10}
   #gpuCanvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+  #gpuDiag{position:fixed; left:10px; bottom:10px; color:#94a3b8; font:12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, PingFang SC, Helvetica, Arial; z-index:9; opacity:.9}
 
   /* 卡片（弹窗） */
   .tile{
@@ -81,6 +82,7 @@
 
   <!-- GPU 粒子字形场（Three.js 渲染到这个 Canvas） -->
   <div id="gpuRoot"><canvas id="gpuCanvas"></canvas></div>
+  <div id="gpuDiag" aria-hidden="true"></div>
 
   <!-- 音乐：自动播放 + 循环；playsinline 避免 iOS 全屏；preload 提前缓冲 -->
   <audio id="bgm" preload="auto" loop autoplay playsinline>
@@ -124,9 +126,14 @@
     <div class="unlock-card">🔊 轻触屏幕开启音乐</div>
   </div>
 
-<script>
+<script type="module">
 /*************************************************
- *                 你的原功能（DOM）              *
+ *                导入 Three.js (ESM)
+ *************************************************/
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+
+/*************************************************
+ *                 你的原功能（DOM）
  *************************************************/
 /* ===================== 全局配置 ===================== */
 const WORD = "LEA";
@@ -487,7 +494,7 @@ function showGPU(show){
 }
 
 async function startLEAFlow(){
-  closeAll();
+  clearAllTimers();
   showGPU(false);
   BG_COLORS = PALETTES[0];
   TIPS = TIPS_SETS[0];
@@ -499,18 +506,14 @@ async function startLEAFlow(){
     clearTimeout(resizeTimer);
     resizeTimer = later(async ()=>{
       if(CURRENT_MODE!=='LEA') return;
-      closeAll();
+      clearAllTimers();
+      const stage = document.getElementById('stage');
+      stage.innerHTML = '';
       await runLetters(WORD);
       runFill();
     }, 250);
   };
   window.addEventListener('resize', onResize, {once:false});
-}
-
-function closeAll(){
-  clearAllTimers();
-  const stage = document.getElementById('stage');
-  stage.innerHTML = '';
 }
 
 function setMode(m){
@@ -520,9 +523,11 @@ function setMode(m){
   }[m] || m);
 
   // 先停 GPU（若在运行）
-  if(window.GPUGlyph && window.GPUGlyph.stop){ window.GPUGlyph.stop(); }
+  window.GPUGlyph?.stop?.();
 
-  closeAll();
+  clearAllTimers();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = '';
 
   if(m==='LEA'){ startLEAFlow(); return; }
   if(m==='HEART_RAIN'){ showGPU(false); modeHeartRain(); return; }
@@ -532,8 +537,7 @@ function setMode(m){
   if(m==='CONFETTI'){ showGPU(false); modeConfetti(); return; }
   if(m==='GPU'){
     showGPU(true);
-    // 启动 GPU 场景（默认字形 WORD）
-    window.GPUGlyph?.start({ text: WORD });
+    window.GPUGlyph.start({ text: WORD });
     return;
   }
 }
@@ -548,15 +552,13 @@ modeMenu.addEventListener('click', (e)=>{
   modeMenu.classList.remove('open'); modeBtn.setAttribute('aria-expanded','false');
   setMode(m);
 });
-
 document.addEventListener('click', (e)=>{
   if(!modeMenu.contains(e.target) && e.target!==modeBtn){
     modeMenu.classList.remove('open'); modeBtn.setAttribute('aria-expanded','false');
   }
 });
-
 document.getElementById('closeAll').addEventListener('click', ()=>{
-  if(CURRENT_MODE==='GPU'){ window.GPUGlyph?.resetParticles?.(); } else { closeAll(); }
+  if(CURRENT_MODE==='GPU'){ window.GPUGlyph?.resetParticles?.(); } else { clearAllTimers(); document.getElementById('stage').innerHTML=''; }
 }, {passive:true});
 
 /* ===================== 音乐控制（自动播放 + 兜底解锁 + 菜单） ===================== */
@@ -590,7 +592,6 @@ async function autoStartBgm(){
     document.addEventListener('pointerdown', once, {once:true, capture:true});
   }
 }
-
 async function togglePlay() {
   try {
     if (bgm.paused) {
@@ -605,7 +606,6 @@ async function togglePlay() {
     console.error(err);
   }
 }
-
 // 短按播放/暂停；长按只开音量菜单
 let pressTimer = null, pressed = false;
 musicBtn.addEventListener('pointerdown', () => {
@@ -617,11 +617,11 @@ musicBtn.addEventListener('pointerup', async () => {
   if (pressed && !musicMenu.classList.contains('open')) await togglePlay();
   pressed = false;
 });
-
+// 点击空白处关闭音乐菜单
 document.addEventListener('click', (e) => {
   if (!musicMenu.contains(e.target) && e.target !== musicBtn) musicMenu.classList.remove('open');
 });
-
+// 音量与静音
 volSlider.addEventListener('input', (e) => {
   const v = parseFloat(e.target.value);
   bgm.volume = isNaN(v) ? 0.6 : v;
@@ -632,287 +632,389 @@ muteBtn.addEventListener('click', () => {
   muteBtn.textContent = bgm.muted ? '取消静音' : '静音';
 });
 
-// GPU 模式下改字按钮
-gpuTextBtn.addEventListener('click', ()=>{
-  const val = prompt('请输入要显示的字形（不超过 24 字）：', window.GPUGlyph?.currentText || WORD);
-  if(!val) return;
-  gpuTextBtn.textContent = '字：' + val.toUpperCase();
-  window.GPUGlyph?.setText(val.toUpperCase());
-});
+/*************************************************
+ *                GPU 粒子字形场（GPGPU）
+ *************************************************/
+window.GPUGlyph = (()=>{
 
-// 启动默认模式
-window.addEventListener('load', ()=>{
-  setMode('LEA');
-  musicBtn.textContent = bgm.paused ? '音乐：播放' : '音乐：暂停';
-  autoStartBgm();
-});
-</script>
+  const PARAMS = {
+    COUNT: 40000,
+    BASE_SIZE: 0.012,
+    DAMPING: 0.92,
+    DRIVE: 0.28,
+    EDGE_THR: 0.5,
+    NOISE: 0.004,
+    ENERGY_SCALE: 1.7,
+    MASK_W: 1024,
+    MASK_H: 512,
+    PALETTE: ['#ffd3e0','#bde0fe','#c7f9cc','#e9e5ff','#fff6b3','#ffcfb3']
+  };
 
-<!-- ===================== GPU 子系统（模块脚本，Three.js + GPGPU） ===================== -->
-<script type="module">
-  import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+  // DOM
+  const canvas = document.getElementById('gpuCanvas');
+  const diag = document.getElementById('gpuDiag');
 
-  const GPUGlyph = (()=>{
-    const PARAMS = {
-      COUNT: 40000,
-      BASE_SIZE: 0.012,
-      DAMPING: 0.92,
-      DRIVE: 0.28,
-      EDGE_THR: 0.5,
-      NOISE: 0.004,
-      ENERGY_SCALE: 1.5,
-      MASK_W: 1024,
-      MASK_H: 512,
-      PALETTE: ['#ffd3e0','#bde0fe','#c7f9cc','#e9e5ff','#fff6b3','#ffcfb3']
-    };
+  // Three 基础
+  let renderer, scene, camera;
+  let compScene, compCam, compMat, compQuad;
+  let renderMat, inst;
+  let maskCanvas, mctx, maskTex;
+  let texSide, rtA, rtB, readRT, writeRT, stateTex;
+  let rafId = 0;
+  let started = false;
 
-    let renderer, scene, camera, animId;
-    let compScene, compCam, compMat, quadGeom;
-    let renderMat, inst;
-    let readRT, writeRT, stateTex;
-    let texSide;
-    let maskCanvas, mctx, maskTex;
-    let currentText = 'LEA';
-    let started = false;
+  // 音频能量（与页面同一 audio）
+  const audio = document.getElementById('bgm');
+  let ac, analyser, aData;
 
-    // 音频（与主页面 bgm 同步）
-    const audio = document.getElementById('bgm');
-    const Audio = { ctx:null, src:null, analyser:null, data:null,
-      async init(){
-        try{
-          if(this.ctx) return;
-          this.ctx = new (window.AudioContext||window.webkitAudioContext)();
-          this.src = this.ctx.createMediaElementSource(audio);
-          this.analyser = this.ctx.createAnalyser();
-          this.analyser.fftSize = 256; this.data = new Uint8Array(this.analyser.frequencyBinCount);
-          this.src.connect(this.analyser).connect(this.ctx.destination);
-        }catch(e){ console.warn('Audio init failed', e); }
-      },
-      energy(){ if(!this.analyser) return 0; this.analyser.getByteFrequencyData(this.data); let s=0; for(const v of this.data) s+=v; return s/(this.data.length*255); }
-    };
+  function log(msg){ diag.textContent = msg || ''; }
 
-    function ensureRenderer(){
-      if(renderer) return;
-      const canvas = document.getElementById('gpuCanvas');
-      renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, canvas });
-      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-      renderer.setSize(innerWidth, innerHeight);
-
-      // 能力检测
-      const gl = renderer.getContext();
-      if(!renderer.capabilities.isWebGL2){ alert('需要 WebGL2 才能运行 GPU 模式'); }
-      if(!gl.getExtension('EXT_color_buffer_float')){ alert('需要 EXT_color_buffer_float'); }
-
-      scene = new THREE.Scene();
-      camera = new THREE.OrthographicCamera(-1,1,1,-1,-10,10);
-
-      // 文本遮罩
-      maskCanvas = document.createElement('canvas');
-      maskCanvas.width = PARAMS.MASK_W; maskCanvas.height = PARAMS.MASK_H;
-      mctx = maskCanvas.getContext('2d');
-      maskTex = new THREE.CanvasTexture(maskCanvas);
-      maskTex.minFilter = THREE.LinearFilter; maskTex.magFilter = THREE.LinearFilter;
-
-      // 计算管线
-      quadGeom = new THREE.PlaneGeometry(2,2);
-      compCam = new THREE.OrthographicCamera(-1,1,1,-1,-1,1);
-      compScene = new THREE.Scene();
-
-      // 粒子渲染材质（实例化）
-      const quad = new THREE.PlaneGeometry(1,1);
-      renderMat = new THREE.RawShaderMaterial({
-        glslVersion: THREE.GLSL3,
-        uniforms: {
-          posTex:   { value: null },
-          uTexSize: { value: new THREE.Vector2(1,1) },
-          uAspect:  { value: innerWidth/innerHeight },
-          uSize:    { value: PARAMS.BASE_SIZE },
-          uEnergy:  { value: 0.0 },
-          uPalette: { value: PARAMS.PALETTE.map(c=> new THREE.Color(c)) }
-        },
-        vertexShader: `
-          precision highp float; precision highp sampler2D;
-          uniform sampler2D posTex; uniform vec2 uTexSize; uniform float uAspect; uniform float uSize; uniform float uEnergy;
-          in vec3 position;
-          void main(){
-            int tw = int(uTexSize.x);
-            int i = gl_InstanceID;
-            int x = i % tw; int y = i / tw;
-            vec2 uv = (vec2(float(x), float(y)) + 0.5) / uTexSize;
-            vec4 s = texture(posTex, uv);
-            vec2 pos = s.xy;
-            float size = uSize * (1.0 + uEnergy*0.6);
-            vec2 p = pos + position.xy * size;
-            gl_Position = vec4(p.x / uAspect, p.y, 0.0, 1.0);
-          }
-        `,
-        fragmentShader: `
-          precision highp float; 
-          uniform vec3 uPalette[6];
-          out vec4 outColor;
-          void main(){ vec3 col = uPalette[gl_InstanceID % 6]; outColor = vec4(col, 0.96); }
-        `,
-        transparent:true
-      });
-      inst = new THREE.InstancedMesh(quad, renderMat, PARAMS.COUNT);
-      inst.frustumCulled = false;
-      scene.add(inst);
-
-      addEventListener('resize', onResize);
+  function checkCaps(gl){
+    if(!renderer.capabilities.isWebGL2){
+      log('需要 WebGL2（此设备仅支持 WebGL1）');
+      return false;
     }
+    const ok32 = gl.getExtension('EXT_color_buffer_float');
+    const ok16 = gl.getExtension('EXT_color_buffer_half_float');
+    if(!ok32 && !ok16){
+      log('需要 EXT_color_buffer_float 或 half_float 扩展');
+      return false;
+    }
+    return true;
+  }
 
-    function drawTextMask(text){
-      const W = maskCanvas.width, H = maskCanvas.height;
-      mctx.clearRect(0,0,W,H);
-      mctx.fillStyle = '#fff';
-      let fontSize = Math.floor(H*0.72);
+  function makeRT(gl){
+    // 优先 32F，否则 16F
+    const has32 = !!gl.getExtension('EXT_color_buffer_float');
+    const type = has32 ? THREE.FloatType : THREE.HalfFloatType;
+    return new THREE.WebGLRenderTarget(texSide, texSide, {
+      type, format: THREE.RGBAFormat,
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+      depthBuffer: false, stencilBuffer: false
+    });
+  }
+
+  function seedState(){
+    const arr = new Float32Array(texSide*texSide*4);
+    const aspect = renderer.domElement.width / renderer.domElement.height;
+    for(let i=0;i<PARAMS.COUNT;i++){
+      const k=i*4;
+      arr[k]   = (Math.random()*2-1) * aspect * 0.95; // x
+      arr[k+1] = (Math.random()*2-1) * 0.95;          // y
+      arr[k+2] = (Math.random()*2-1) * 0.02;          // vx
+      arr[k+3] = (Math.random()*2-1) * 0.02;          // vy
+    }
+    const tex = new THREE.DataTexture(arr, texSide, texSide, THREE.RGBAFormat, THREE.FloatType);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  function buildMaskCanvas(){
+    maskCanvas = document.createElement('canvas');
+    maskCanvas.width = PARAMS.MASK_W;
+    maskCanvas.height = PARAMS.MASK_H;
+    mctx = maskCanvas.getContext('2d');
+    maskTex = new THREE.CanvasTexture(maskCanvas);
+    maskTex.minFilter = THREE.LinearFilter;
+    maskTex.magFilter = THREE.LinearFilter;
+  }
+
+  function drawTextMask(text){
+    const W = maskCanvas.width, H = maskCanvas.height;
+    mctx.clearRect(0,0,W,H);
+    mctx.fillStyle = '#fff';
+    let fontSize = Math.floor(H*0.72);
+    mctx.font = `700 ${fontSize}px system-ui,-apple-system,Segoe UI,Roboto,PingFang SC,Helvetica,Arial`;
+    let metrics = mctx.measureText(text);
+    while(metrics.width > W*0.85 && fontSize>12){
+      fontSize -= 4;
       mctx.font = `700 ${fontSize}px system-ui,-apple-system,Segoe UI,Roboto,PingFang SC,Helvetica,Arial`;
-      let metrics = mctx.measureText(text);
-      while(metrics.width > W*0.85 && fontSize>12){ fontSize-=4; mctx.font = `700 ${fontSize}px system-ui,-apple-system,Segoe UI,Roboto,PingFang SC,Helvetica,Arial`; metrics = mctx.measureText(text); }
-      mctx.textAlign='center'; mctx.textBaseline='middle';
-      const x=W/2, y=H/2 + (metrics.actualBoundingBoxDescent - metrics.actualBoundingBoxAscent)/2;
-      mctx.fillText(text, x, y);
-      maskTex.needsUpdate = true;
+      metrics = mctx.measureText(text);
     }
+    mctx.textAlign='center'; mctx.textBaseline='middle';
+    const x=W/2, y=H/2 + (metrics.actualBoundingBoxDescent - metrics.actualBoundingBoxAscent)/2;
+    mctx.fillText(text, x, y);
+    maskTex.needsUpdate = true;
+  }
 
-    function makeRT(){
-      return new THREE.WebGLRenderTarget(texSide, texSide, {
-        type: THREE.FloatType,
-        format: THREE.RGBAFormat,
-        minFilter: THREE.NearestFilter,
-        magFilter: THREE.NearestFilter,
-        depthBuffer: false,
-        stencilBuffer: false
-      });
-    }
+  function buildCompute(gl){
+    const quadGeom = new THREE.PlaneGeometry(2,2);
+    compMat = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        prevTex:   { value: stateTex },
+        maskTex:   { value: maskTex },
+        uTexSize:  { value: new THREE.Vector2(texSide, texSide) },
+        uMaskSize: { value: new THREE.Vector2(PARAMS.MASK_W, PARAMS.MASK_H) },
+        uAspect:   { value: innerWidth/innerHeight },
+        uDt:       { value: 0.016 },
+        uTime:     { value: 0 },
+        uDrive:    { value: PARAMS.DRIVE },
+        uDamping:  { value: PARAMS.DAMPING },
+        uNoise:    { value: PARAMS.NOISE },
+        uEdgeThr:  { value: PARAMS.EDGE_THR },
+        uEnergy:   { value: 0.0 }
+      },
+      // 注意：不要重复声明 in vec3 position; Three 会注入
+      vertexShader: `
+        out vec2 vUv;
+        void main(){
+          vUv = position.xy*0.5 + 0.5;
+          gl_Position = vec4(position,1.0);
+        }
+      `,
+      fragmentShader: `
+        precision highp float; precision highp int; precision highp sampler2D;
+        in vec2 vUv; out vec4 outColor;
+        uniform sampler2D prevTex;   // (x,y,vx,vy)
+        uniform sampler2D maskTex;   // 文本 alpha
+        uniform vec2 uTexSize, uMaskSize; 
+        uniform float uAspect, uDt, uTime, uDrive, uDamping, uNoise, uEdgeThr, uEnergy;
 
-    function seedState(){
-      const initArr = new Float32Array(texSide*texSide*4);
-      for(let i=0;i<PARAMS.COUNT;i++){
-        const k=i*4; 
-        initArr[k]   = (Math.random()*2-1) * (innerWidth/innerHeight) * 0.95;
-        initArr[k+1] = (Math.random()*2-1) * 0.95;                             
-        initArr[k+2] = (Math.random()*2-1) * 0.02;                             
-        initArr[k+3] = (Math.random()*2-1) * 0.02;                             
-      }
-      const initTex = new THREE.DataTexture(initArr, texSide, texSide, THREE.RGBAFormat, THREE.FloatType);
-      initTex.needsUpdate = true;
-      return initTex;
-    }
+        float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
+        float rand(vec2 p){ return hash(p + uTime*0.123); }
 
-    function buildComputeMaterial(){
-      return new THREE.ShaderMaterial({
-        glslVersion: THREE.GLSL3,
-        uniforms: {
-          prevTex:   { value: stateTex },
-          maskTex:   { value: maskTex },
-          uTexSize:  { value: new THREE.Vector2(texSide, texSide) },
-          uMaskSize: { value: new THREE.Vector2(PARAMS.MASK_W, PARAMS.MASK_H) },
-          uAspect:   { value: innerWidth/innerHeight },
-          uDt:       { value: 0.016 },
-          uTime:     { value: 0 },
-          uDrive:    { value: PARAMS.DRIVE },
-          uDamping:  { value: PARAMS.DAMPING },
-          uNoise:    { value: PARAMS.NOISE },
-          uEdgeThr:  { value: PARAMS.EDGE_THR },
-          uEnergy:   { value: 0.0 }
-        },
-        vertexShader: `in vec3 position; out vec2 vUv; void main(){ vUv = position.xy*0.5+0.5; gl_Position = vec4(position,1.0); }`,
-        fragmentShader: `
-          precision highp float; precision highp sampler2D; in vec2 vUv; out vec4 outColor;
-          uniform sampler2D prevTex; uniform sampler2D maskTex; 
-          uniform vec2 uTexSize, uMaskSize; uniform float uAspect, uDt, uTime, uDrive, uDamping, uNoise, uEdgeThr, uEnergy;
-          float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
-          float rand(vec2 p){ return hash(p + uTime*0.123); }
-          vec2 worldToMask(vec2 pos){ float u=(pos.x/uAspect+1.0)*0.5; float v=1.0-(pos.y+1.0)*0.5; return vec2(u,v);} 
-          vec3 sampleAlphaGrad(vec2 pos){ vec2 uv=worldToMask(pos); vec2 dp=1.0/uMaskSize; float a=texture(maskTex,uv).a; float ax=texture(maskTex,uv+vec2(dp.x,0.0)).a-texture(maskTex,uv-vec2(dp.x,0.0)).a; float ay=texture(maskTex,uv+vec2(0.0,dp.y)).a-texture(maskTex,uv-vec2(0.0,dp.y)).a; return vec3(a, ax*0.5, ay*0.5);} 
-          void main(){ vec4 s=texture(prevTex, vUv); vec2 pos=s.xy; vec2 vel=s.zw; 
-            vec3 ag=sampleAlphaGrad(pos); float a=ag.x; vec2 grad=vec2(ag.y,ag.z); float sgn=(a<uEdgeThr)?1.0:-0.5; vec2 F=sgn*grad*uDrive*(0.5+uEnergy);
-            vec2 N=(vec2(rand(vUv+0.37),rand(vUv+0.79))*2.0-1.0)*uNoise*(0.6+uEnergy);
-            vel=(vel+F)*uDamping+N; pos+=vel*uDt;
-            float X=uAspect*0.98; if(pos.x<-X){pos.x=-X; vel.x*=-0.4;} if(pos.x> X){pos.x= X; vel.x*=-0.4;} if(pos.y<-0.98){pos.y=-0.98; vel.y*=-0.4;} if(pos.y>0.98){pos.y=0.98; vel.y*=-0.4;}
-            outColor=vec4(pos,vel); }
-        `
-      });
-    }
+        vec2 worldToMask(vec2 pos){
+          float u = (pos.x / uAspect + 1.0) * 0.5;
+          float v = 1.0 - (pos.y + 1.0) * 0.5;
+          return vec2(u, v);
+        }
 
-    function initPipelines(){
-      texSide = Math.ceil(Math.sqrt(PARAMS.COUNT));
-      readRT = new THREE.WebGLRenderTarget(texSide, texSide, { type: THREE.FloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer:false, stencilBuffer:false });
-      writeRT = readRT.clone();
-      stateTex = seedState();
+        vec3 sampleAlphaGrad(vec2 pos){
+          vec2 uv = worldToMask(pos);
+          vec2 dp = 1.0 / uMaskSize;
+          float a  = texture(maskTex, uv).a;
+          float ax = texture(maskTex, uv + vec2(dp.x,0.0)).a - texture(maskTex, uv - vec2(dp.x,0.0)).a;
+          float ay = texture(maskTex, uv + vec2(0.0,dp.y)).a - texture(maskTex, uv - vec2(0.0,dp.y)).a;
+          return vec3(a, ax*0.5, ay*0.5);
+        }
 
-      compMat = buildComputeMaterial();
-      const compQuad = new THREE.Mesh(quadGeom, compMat);
-      compScene.add(compQuad);
+        void main(){
+          vec4 s = texture(prevTex, vUv);
+          vec2 pos = s.xy; vec2 vel = s.zw;
 
-      renderMat.uniforms.uTexSize.value.set(texSide, texSide);
-      renderMat.uniforms.posTex.value = readRT.texture;
-    }
+          vec3 ag = sampleAlphaGrad(pos);
+          float a = ag.x; vec2 grad = vec2(ag.y, ag.z);
+          float sgn = (a < uEdgeThr) ? 1.0 : -0.5;
+          vec2 F = sgn * grad * uDrive * (0.5 + uEnergy);
 
-    function computeStep(dt, E){
-      compMat.uniforms.uDt.value = dt;
-      compMat.uniforms.uTime.value += dt;
-      compMat.uniforms.uEnergy.value = E;
-      compMat.uniforms.uAspect.value = innerWidth/innerHeight;
-      compMat.uniforms.prevTex.value = stateTex ? stateTex : readRT.texture;
-      renderer.setRenderTarget(writeRT);
-      renderer.render(compScene, compCam);
-      renderer.setRenderTarget(null);
-      stateTex = null; // 仅首帧使用
-      const tmp = readRT; readRT = writeRT; writeRT = tmp;
-    }
+          vec2 N = (vec2(rand(vUv+0.37), rand(vUv+0.79))*2.0-1.0) * uNoise * (0.6 + uEnergy);
 
-    function onResize(){
-      if(!renderer) return;
-      renderer.setSize(innerWidth, innerHeight);
-      renderMat.uniforms.uAspect.value = innerWidth/innerHeight;
-      compMat.uniforms.uAspect.value = innerWidth/innerHeight;
-    }
+          vel = (vel + F) * uDamping + N;
+          pos += vel * uDt;
 
-    function loop(){
-      const E = Audio.energy() * PARAMS.ENERGY_SCALE;
-      const now = performance.now();
-      if(!loop.last) loop.last = now;
-      const dt = Math.min(0.04, (now - loop.last)/1000); loop.last = now;
+          float X = uAspect * 0.98;
+          if(pos.x < -X){ pos.x=-X; vel.x*=-0.4; }
+          if(pos.x >  X){ pos.x= X; vel.x*=-0.4; }
+          if(pos.y < -0.98){ pos.y=-0.98; vel.y*=-0.4; }
+          if(pos.y >  0.98){ pos.y= 0.98; vel.y*=-0.4; }
+
+          outColor = vec4(pos, vel);
+        }
+      `
+    });
+    compScene = new THREE.Scene();
+    compQuad = new THREE.Mesh(quadGeom, compMat);
+    compScene.add(compQuad);
+    compCam = new THREE.OrthographicCamera(-1,1,1,-1, -1, 1);
+  }
+
+  function buildRender(){
+    const quad = new THREE.PlaneGeometry(1,1);
+    renderMat = new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        posTex:   { value: readRT.texture },
+        uTexSize: { value: new THREE.Vector2(texSide, texSide) },
+        uAspect:  { value: innerWidth/innerHeight },
+        uSize:    { value: PARAMS.BASE_SIZE },
+        uEnergy:  { value: 0.0 },
+        uPalette: { value: PARAMS.PALETTE.map(c=> new THREE.Color(c)) }
+      },
+      vertexShader: `
+        precision highp float; precision highp int; precision highp sampler2D;
+        uniform sampler2D posTex; uniform vec2 uTexSize; uniform float uAspect; uniform float uSize; uniform float uEnergy;
+        // Three 会注入 attribute vec3 position; 这里不要重复声明
+        flat out int vColIndex;
+        out vec2 vCenter;
+        void main(){
+          int tw = int(uTexSize.x);
+          int i = gl_InstanceID;
+          int x = i % tw; int y = i / tw;
+          vec2 uv = (vec2(float(x), float(y)) + 0.5) / uTexSize;
+          vec4 s = texture(posTex, uv);
+          vec2 pos = s.xy;
+          float size = uSize * (1.0 + uEnergy*0.6);
+          vec2 p = pos + position.xy * size;
+
+          vColIndex = i % 6;
+          vCenter = position.xy;
+
+          gl_Position = vec4(p.x / uAspect, p.y, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        precision highp float; precision highp int;
+        uniform vec3 uPalette[6]; uniform float uEnergy;
+        flat in int vColIndex;
+        in vec2 vCenter;
+        out vec4 outColor;
+        void main(){
+          // 根据几何中心生成一个软边圆点 alpha
+          float d = length(vCenter);
+          float alpha = smoothstep(0.6, 0.5, d);
+          vec3 col = uPalette[vColIndex];
+          outColor = vec4(col, alpha * (0.85 + 0.15*uEnergy));
+        }
+      `,
+      transparent: true
+    });
+    inst = new THREE.InstancedMesh(quad, renderMat, PARAMS.COUNT);
+    inst.frustumCulled = false;
+    scene.add(inst);
+  }
+
+  async function initAudio(){
+    try{
+      if(ac) return;
+      ac = new (window.AudioContext||window.webkitAudioContext)();
+      const src = ac.createMediaElementSource(audio);
+      analyser = ac.createAnalyser();
+      analyser.fftSize = 256;
+      aData = new Uint8Array(analyser.frequencyBinCount);
+      src.connect(analyser).connect(ac.destination);
+    }catch(e){ /* 忽略无音频权限 */ }
+  }
+  function energy(){
+    if(!analyser) return 0;
+    analyser.getByteFrequencyData(aData);
+    let s=0; for(const v of aData) s+=v;
+    return s/(aData.length*255);
+  }
+
+  function computeStep(dt, E){
+    compMat.uniforms.uDt.value = dt;
+    compMat.uniforms.uTime.value += dt;
+    compMat.uniforms.uEnergy.value = E;
+    compMat.uniforms.uAspect.value = innerWidth/innerHeight;
+
+    compMat.uniforms.prevTex.value = stateTex ? stateTex : readRT.texture;
+    renderer.setRenderTarget(writeRT);
+    renderer.render(compScene, compCam);
+    renderer.setRenderTarget(null);
+
+    stateTex = null;
+    const tmp = readRT; readRT = writeRT; writeRT = tmp;
+  }
+
+  function loop(){
+    let last = performance.now();
+    const tick = async (now)=>{
+      const dt = Math.min(0.04, (now-last)/1000); last=now;
+      const E = energy() * PARAMS.ENERGY_SCALE;
+
       computeStep(dt, E);
       renderMat.uniforms.posTex.value = readRT.texture;
       renderMat.uniforms.uEnergy.value = E;
+
       renderer.render(scene, camera);
-      animId = requestAnimationFrame(loop);
-    }
-
-    return {
-      get currentText(){ return currentText; },
-      async start({text='LEA'}={}){
-        ensureRenderer();
-        await Audio.init();
-        // 初始化/重置流水线
-        if(inst) scene.remove(inst); // 保险：重建实例数量时使用
-        // 这里我们固定 COUNT，不重建 inst
-        drawTextMask(text);
-        currentText = text;
-        initPipelines();
-        if(!started){ started = true; }
-        cancelAnimationFrame(animId); loop.last = 0; animId = requestAnimationFrame(loop);
-      },
-      stop(){ cancelAnimationFrame(animId); animId = null; },
-      resize: onResize,
-      setText(text){ currentText = text || 'LEA'; drawTextMask(currentText); },
-      resetParticles(){ // 清屏: 重新播种
-        stateTex = null; // 强制使用当前 readRT 状态
-        // 重新播种：
-        const init = seedState();
-        compMat.uniforms.prevTex.value = init; stateTex = init;
-      }
+      rafId = requestAnimationFrame(tick);
     };
-  })();
+    rafId = requestAnimationFrame(tick);
+  }
 
-  // 暴露到全局，供主脚本调度
-  window.GPUGlyph = GPUGlyph;
+  function onResize(){
+    renderer.setSize(innerWidth, innerHeight, false);
+    renderMat.uniforms.uAspect.value = innerWidth/innerHeight;
+    compMat.uniforms.uAspect.value = innerWidth/innerHeight;
+  }
 
-  // 自适应
-  addEventListener('resize', ()=>{ GPUGlyph.resize(); }, { passive:true });
+  function start({text="LEA"}={}){
+    if(started) return;
+    started = true;
+    log('');
+
+    renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, canvas });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight, false);
+    const gl = renderer.getContext();
+
+    if(!checkCaps(gl)){ return; }
+
+    scene = new THREE.Scene();
+    camera = new THREE.OrthographicCamera(-1,1,1,-1, -10, 10);
+
+    buildMaskCanvas();
+    drawTextMask(text);
+
+    texSide = Math.ceil(Math.sqrt(PARAMS.COUNT));
+    stateTex = seedState();
+    rtA = makeRT(gl);
+    rtB = makeRT(gl);
+    readRT = rtA; writeRT = rtB;
+
+    buildCompute(gl);
+    buildRender();
+    loop();
+    addEventListener('resize', onResize);
+
+    initAudio();
+    document.getElementById('gpuTextBtn').onclick = ()=>{
+      const val = prompt('输入要显示的文本（最长 24 个字符）：', text) || text;
+      const s = (val || 'LEA').slice(0,24).toUpperCase();
+      drawTextMask(s);
+      document.getElementById('gpuTextBtn').textContent = '字：' + s;
+    };
+
+    // 简易 PWA 缓存（可离线）
+    if('serviceWorker' in navigator){
+      const swCode = `self.addEventListener('install',e=>{e.waitUntil(caches.open('lea-gpgpu-v1').then(c=>c.addAll(['./','./lea.mp3'])))});self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`;
+      const blob = new Blob([swCode], {type:'text/javascript'});
+      const swUrl = URL.createObjectURL(blob);
+      navigator.serviceWorker.register(swUrl).catch(()=>{});
+    }
+  }
+
+  function stop(){
+    if(!started) return;
+    cancelAnimationFrame(rafId);
+    rafId = 0;
+
+    try{
+      inst?.geometry?.dispose?.();
+      renderMat?.dispose?.();
+      compQuad?.geometry?.dispose?.();
+      compMat?.dispose?.();
+      rtA?.dispose?.(); rtB?.dispose?.();
+      stateTex?.dispose?.();
+      maskTex?.dispose?.();
+      renderer?.dispose?.();
+    }catch(_){}
+    scene = camera = compScene = compCam = compMat = compQuad = renderMat = inst = null;
+    rtA = rtB = readRT = writeRT = stateTex = null;
+    started = false;
+    log('');
+  }
+
+  function resetParticles(){
+    if(!started) return;
+    stateTex = seedState();
+  }
+
+  return { start, stop, resetParticles, drawTextMask };
+})();
+
+/*************************************************
+ *                 页面启动
+ *************************************************/
+window.addEventListener('load', ()=>{
+  // 默认进入 DOM 的 LEA 流程
+  setMode('LEA');
+  // 音乐自动播放尝试
+  document.getElementById('musicBtn').textContent = bgm.paused ? '音乐：播放' : '音乐：暂停';
+  autoStartBgm();
+});
 </script>
 </body>
 </html>
